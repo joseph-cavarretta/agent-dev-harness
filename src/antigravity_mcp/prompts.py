@@ -1,0 +1,22 @@
+PYTHON_STANDARDS = """Code standards:
+- Pydantic models for interfaces, Protocols for dependency injection.
+- Configuration through BaseSettings only. Never read os.environ directly.
+- No lazy imports.
+- Solve only what was asked. Keep the diff minimal.
+- Comment only where the logic is not self-evident. Do not add docstrings to code you did not change."""
+
+WRITING_STYLE = """Writing style:
+- Plain English. Prefer the plainer word: "fill in" over "hydrate", "response shape" over
+  "wire format", "slip through silently" over "fail-open".
+- Keep precise technical terms that carry specific meaning (BM25, kNN, chunk_id, OOXML).
+- Write for a reader who does not already know the subject. Say what a thing is and what it
+  does in concrete terms.
+- Replace abstractions with the actual consequence: "one edit instead of one per service",
+  not "a configuration change".
+- Every sentence must earn its place. Cut the ones that do not."""
+
+NO_CUSTOMER_NAMES = (
+    "Never write real customer or tenant names. Use <tenant>, <env>, or <customer> placeholders."
+)
+
+OBSIDIAN_LINKS = "Link related pages with Obsidian wiki links: [[wiki/folder/page-name]]."

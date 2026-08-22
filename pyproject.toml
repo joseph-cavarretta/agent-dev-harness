@@ -1,0 +1,26 @@
+[project]
+name = "antigravity-mcp"
+version = "0.1.0"
+description = "FastMCP server bridging Claude Code with Antigravity CLI (Gemini 3.7 Flash High Effort)"
+authors = [
+    { name = "Joseph Cavarretta", email = "joseph@Josephs-MacBook-Pro.local" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.scripts]
+antigravity-mcp = "antigravity_mcp.main:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
