@@ -3,7 +3,7 @@ name = "antigravity-mcp"
 version = "0.1.0"
 description = "FastMCP server bridging Claude Code with Antigravity CLI (Gemini 3.7 Flash High Effort)"
 authors = [
-    { name = "Joseph Cavarretta", email = "joseph@Josephs-MacBook-Pro.local" }
+    { name = "Joseph Cavarretta", email = "dev@example.com" }
 ]
 requires-python = ">=3.11"
 dependencies = [

@@ -33,8 +33,8 @@ def test_runner_constructs_correct_cli_command() -> None:
         mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(AGY_JSON), stderr="")
         result = runner.run_prompt(
             prompt="Test prompt",
-            working_directory="/Users/joseph/dev",
-            additional_dirs=["/Users/joseph/.vault"],
+            working_directory="/tmp/project",
+            additional_dirs=["/tmp/extra-dir"],
         )
 
     assert result.command == [
@@ -51,7 +51,7 @@ def test_runner_constructs_correct_cli_command() -> None:
         "300s",
         "--dangerously-skip-permissions",
         "--add-dir",
-        "/Users/joseph/.vault",
+        "/tmp/extra-dir",
     ]
 
 
