@@ -76,19 +76,28 @@ class DummyRunner:
 
 
 class DummyVerifier:
-    def __init__(self, passed: bool = True) -> None:
+    def __init__(self, passed: bool = True, sequence: Optional[List[bool]] = None) -> None:
         self.passed = passed
+        self.sequence = list(sequence) if sequence else None
+        self.calls = 0
+        self.commands: List[str] = []
         self.last_command: Optional[str] = None
         self.last_directory: Optional[str] = None
 
     def run(self, command: str, working_directory: str, timeout_seconds: int) -> Verification:
+        self.calls += 1
+        self.commands.append(command)
         self.last_command = command
         self.last_directory = working_directory
+        if self.sequence:
+            ok = self.sequence.pop(0) if self.sequence else self.passed
+        else:
+            ok = self.passed
         return Verification(
             command=command,
-            passed=self.passed,
-            exit_code=0 if self.passed else 1,
-            output="1 passed" if self.passed else "1 failed: AssertionError",
+            passed=ok,
+            exit_code=0 if ok else 1,
+            output="1 passed" if ok else "1 failed: AssertionError: add(2,3)=-1",
         )
 
 
@@ -182,10 +191,10 @@ def test_code_draft_runs_the_verify_loop_and_checks_independently(tmp_path: Path
         verify_directory=str(tmp_path),
     )
 
-    assert "Close the loop yourself" in runner.last_prompt
+    assert "Check your work before handing it back" in runner.last_prompt
     assert "uv run pytest -q" in runner.last_prompt
     assert "Never edit or weaken the check" in runner.last_prompt
-    assert verifier.last_command == "uv run pytest -q"
+    assert verifier.last_command == f"cd {tmp_path} && uv run pytest -q"
     assert verifier.last_directory == str(tmp_path)
     assert "PASSED" in result
     assert "Verification (run by this server, not agy)" in result
@@ -324,8 +333,8 @@ def test_refine_delegation_resumes_and_can_verify(tmp_path: Path) -> None:
 
     assert runner.last_conversation_id == "conv-42"
     assert "buries the root cause" in runner.last_prompt
-    assert "Close the loop yourself" in runner.last_prompt
-    assert verifier.last_command == "pytest -q"
+    assert "Check your work before handing it back" in runner.last_prompt
+    assert verifier.last_command == f"cd {tmp_path} && pytest -q"
     assert "PASSED" in result
 
 
@@ -370,3 +379,92 @@ def test_delegation_stats_reports_correction_rate_and_disagreement(tmp_path: Pat
 def test_delegation_stats_handles_no_log(tmp_path: Path) -> None:
     result = _tool(_server(tmp_path), "delegation_stats").fn()
     assert "No delegation log yet" in result
+
+
+def test_verify_command_always_carries_an_explicit_cd(tmp_path: Path) -> None:
+    """agy's shell starts in its own scratch dir; without a cd the check runs in the wrong place."""
+    verifier = DummyVerifier(passed=True)
+    runner = DummyRunner()
+    server = _server(tmp_path, runner, verifier)
+
+    _tool(server, "delegate_code_draft").fn(
+        target_file=str(tmp_path / "worker.py"),
+        task_description="Anything",
+        verify_command="pytest -q",
+        verify_directory=str(tmp_path),
+    )
+
+    assert verifier.last_command == f"cd {tmp_path} && pytest -q"
+    assert f"cd {tmp_path} && pytest -q" in runner.last_prompt
+
+
+def test_server_retries_with_the_real_failure_until_it_passes(tmp_path: Path) -> None:
+    """The loop is driven here, not by agy: fail, feed the observed output back, pass."""
+    verifier = DummyVerifier(sequence=[False, False, True])
+    runner = DummyRunner()
+    server = _server(tmp_path, runner, verifier)
+
+    result = _tool(server, "delegate_code_draft").fn(
+        target_file=str(tmp_path / "worker.py"),
+        task_description="Sum two numbers",
+        verify_command="pytest -q",
+        verify_directory=str(tmp_path),
+    )
+
+    assert verifier.calls == 3
+    assert runner.calls == 3
+    assert "AssertionError: add(2,3)=-1" in runner.last_prompt
+    assert "captured by the caller running" in runner.last_prompt
+    assert runner.last_conversation_id == "conv-42"
+    assert "Verify rounds: 3" in result
+    assert "PASSED" in result
+
+
+def test_server_gives_up_after_max_rounds(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.max_verify_rounds = 2
+    verifier = DummyVerifier(passed=False)
+    runner = DummyRunner()
+    server = create_server(settings=settings, runner=runner, verifier=verifier)
+
+    result = _tool(server, "delegate_code_draft").fn(
+        target_file=str(tmp_path / "worker.py"),
+        task_description="Anything",
+        verify_command="pytest -q",
+    )
+
+    assert verifier.calls == 2
+    assert runner.calls == 2
+    assert "gave up after 2" in result
+    assert "FAILED" in result
+    assert "AssertionError" in result
+
+
+def test_no_retry_loop_when_no_verify_command(tmp_path: Path) -> None:
+    verifier = DummyVerifier()
+    runner = DummyRunner()
+    server = _server(tmp_path, runner, verifier)
+
+    _tool(server, "delegate_code_draft").fn(
+        target_file=str(tmp_path / "worker.py"), task_description="Anything"
+    )
+
+    assert verifier.calls == 0
+    assert runner.calls == 1
+
+
+def test_verify_rounds_are_logged(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    server = create_server(
+        settings=settings, runner=DummyRunner(), verifier=DummyVerifier(sequence=[False, True])
+    )
+
+    _tool(server, "delegate_code_draft").fn(
+        target_file=str(tmp_path / "worker.py"),
+        task_description="Anything",
+        verify_command="pytest -q",
+    )
+
+    row = json.loads(settings.log_path.read_text(encoding="utf-8").splitlines()[0])
+    assert row["verify_rounds"] == 2
+    assert row["verified"] is True

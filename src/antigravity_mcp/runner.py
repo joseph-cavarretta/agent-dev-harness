@@ -168,6 +168,7 @@ def log_delegation(
     result: ExecutionResult,
     verified: Optional[bool] = None,
     refine_of: Optional[str] = None,
+    verify_rounds: Optional[int] = None,
 ) -> None:
     """Append one line per delegation so the accept rate can be measured later.
 
@@ -179,6 +180,7 @@ def log_delegation(
         "target": result.target_file,
         "agy_reported_success": result.success,
         "verified": verified,
+        "verify_rounds": verify_rounds,
         "refine_of": refine_of,
         "conversation_id": result.conversation_id,
         "duration_s": round(result.duration_seconds, 1) if result.duration_seconds else None,

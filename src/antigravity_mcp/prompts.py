@@ -22,19 +22,44 @@ NO_CUSTOMER_NAMES = (
 OBSIDIAN_LINKS = "Link related pages with Obsidian wiki links: [[wiki/folder/page-name]]."
 
 
+def verify_command_line(command: str, directory: str) -> str:
+    """The literal shell line agy must run, cd included.
+
+    agy's shell tool always starts in its own scratch directory, whatever working directory
+    the process was launched from. Without an explicit cd it runs somewhere else entirely and
+    then reports output it never obtained.
+    """
+    return f"cd {directory} && {command}"
+
+
 def verify_loop(command: str, directory: str, max_rounds: int) -> str:
-    """Instruction block telling agy to iterate against a real command until it passes."""
-    return f"""Close the loop yourself. Do not hand back failing work:
+    """Instruction block telling agy to check its own work against a real command."""
+    return f"""Check your work before handing it back:
 1. Write the code.
-2. Run this exact command from {directory}:
-     {command}
+2. Run this exact shell command, including the cd — your shell does not start in the right
+   directory, so dropping the cd silently checks the wrong thing:
+     {verify_command_line(command, directory)}
 3. If it fails, read the actual error, fix the cause, and run it again.
 4. Repeat up to {max_rounds} times until it passes.
 
-Rules for the loop:
+Rules:
 - Never edit or weaken the check to make it pass. Fix the code under test.
 - If the check itself is genuinely wrong, stop and say so rather than working around it.
+- Report only output you actually saw. Do not describe a passing run you did not observe.
 - If you cannot get it passing, say exactly what still fails and what you tried.
-- End by reporting the command's final output verbatim.
 
-The caller re-runs this command independently, so a false claim of success will be caught."""
+The caller runs this command itself and drives the retries, so a false claim of success is
+caught immediately."""
+
+
+def verify_retry(command: str, directory: str, attempt: int, output: str) -> str:
+    """Feed a real, observed failure back into a warm conversation."""
+    return f"""The check still fails. This is the real output, captured by the caller running
+the command itself (attempt {attempt}):
+
+$ {verify_command_line(command, directory)}
+{output}
+
+Fix the underlying cause and run the command again yourself to confirm. Do not weaken the
+check. If this output shows the check itself is wrong rather than the code, say so plainly
+instead of working around it."""

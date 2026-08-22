@@ -331,11 +331,41 @@ def create_server(
         )
 
         verification: Optional[Verification] = None
+        rounds = 0
         if verify_command:
-            verification = exec_verifier.run(
-                command=verify_command,
-                working_directory=verify_dir,
-                timeout_seconds=cfg.verify_timeout_seconds,
+            # The retry loop lives here, not in agy's head: agy's shell starts in a scratch
+            # directory and it will report a passing run it never made. Only this side sees
+            # the real result, so only this side can decide whether to iterate.
+            def check() -> Verification:
+                return exec_verifier.run(
+                    command=prompts.verify_command_line(verify_command, verify_dir),
+                    working_directory=verify_dir,
+                    timeout_seconds=cfg.verify_timeout_seconds,
+                )
+
+            verification = check()
+            rounds = 1
+            while (
+                not verification.passed
+                and rounds < cfg.max_verify_rounds
+                and res.conversation_id
+            ):
+                res = exec_runner.run_prompt(
+                    prompt=prompts.verify_retry(
+                        verify_command, verify_dir, rounds, verification.output
+                    ),
+                    working_directory=str(work_dir),
+                    timeout_seconds=cfg.default_timeout_seconds,
+                    target_file=str(dest_path),
+                    conversation_id=res.conversation_id,
+                    model=model,
+                    effort=effort,
+                )
+                verification = check()
+                rounds += 1
+            notes.append(
+                f"Verify rounds: {rounds}"
+                + ("" if verification.passed else f" (gave up after {rounds})")
             )
 
         log_delegation(
@@ -343,6 +373,7 @@ def create_server(
             "delegate_code_draft",
             res,
             verified=verification.passed if verification else None,
+            verify_rounds=rounds or None,
         )
 
         review = (
@@ -584,9 +615,10 @@ def create_server(
 
         verification: Optional[Verification] = None
         if verify_command:
+            verify_dir = verify_directory or work_dir
             verification = exec_verifier.run(
-                command=verify_command,
-                working_directory=verify_directory or work_dir,
+                command=prompts.verify_command_line(verify_command, verify_dir),
+                working_directory=verify_dir,
                 timeout_seconds=cfg.verify_timeout_seconds,
             )
 
