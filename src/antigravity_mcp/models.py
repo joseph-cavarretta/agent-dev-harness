@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 
@@ -20,3 +20,13 @@ class ExecutionResult(BaseModel):
     conversation_id: Optional[str] = None
     duration_seconds: Optional[float] = None
     usage: Optional[Usage] = None
+    structured_output: Optional[Dict[str, Any]] = None
+
+
+class Verification(BaseModel):
+    """Result of the server running a verify command itself, not agy's claim about it."""
+
+    command: str
+    passed: bool
+    exit_code: int
+    output: str

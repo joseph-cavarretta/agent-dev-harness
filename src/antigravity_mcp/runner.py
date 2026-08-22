@@ -1,11 +1,13 @@
 import json
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from antigravity_mcp.config import Settings
 from antigravity_mcp.models import ExecutionResult, Usage
-from antigravity_mcp.protocols import AgyRunnerProtocol
+
+VALID_EFFORTS = ("low", "medium", "high")
 
 
 def _parse_agy_json(stdout: str) -> Optional[Dict[str, Any]]:
@@ -36,7 +38,7 @@ def _parse_agy_json(stdout: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-class AgyRunner(AgyRunnerProtocol):
+class AgyRunner:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
@@ -48,6 +50,9 @@ class AgyRunner(AgyRunnerProtocol):
         additional_dirs: Optional[List[str]] = None,
         target_file: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        model: Optional[str] = None,
+        effort: Optional[str] = None,
+        output_schema: Optional[Dict[str, Any]] = None,
     ) -> ExecutionResult:
         cwd = Path(working_directory) if working_directory else self.settings.dev_path
         print_timeout = timeout_seconds or self.settings.default_timeout_seconds
@@ -55,19 +60,33 @@ class AgyRunner(AgyRunnerProtocol):
         # times out first and we keep its error message instead of killing it blind.
         subprocess_timeout = print_timeout + self.settings.timeout_grace_seconds
 
+        chosen_effort = (effort or self.settings.default_effort).lower()
+        if chosen_effort not in VALID_EFFORTS:
+            return ExecutionResult(
+                success=False,
+                stdout="",
+                stderr=f"effort must be one of {', '.join(VALID_EFFORTS)}, got {chosen_effort!r}",
+                exit_code=-1,
+                command=[],
+                target_file=target_file,
+            )
+
         cmd: List[str] = [
             str(self.settings.agy_bin_path),
             "--print",
             prompt,
             "--model",
-            self.settings.default_model,
+            model or self.settings.default_model,
             "--effort",
-            self.settings.default_effort,
+            chosen_effort,
             "--output-format",
             "json",
             "--print-timeout",
             f"{print_timeout}s",
         ]
+
+        if output_schema:
+            cmd.extend(["--json-schema", json.dumps(output_schema)])
 
         if conversation_id:
             cmd.extend(["--conversation", conversation_id])
@@ -99,6 +118,7 @@ class AgyRunner(AgyRunnerProtocol):
                 exit_code=-1,
                 command=cmd,
                 target_file=target_file,
+                duration_seconds=time.monotonic() - started,
             )
         except OSError as e:
             return ExecutionResult(
@@ -110,10 +130,10 @@ class AgyRunner(AgyRunnerProtocol):
                 target_file=target_file,
             )
 
-        # agy's own duration_seconds is not wall clock (a 21s run reported 1.7), so measure it here.
+        # agy's own duration_seconds is not wall clock (a 21s run reported 1.7), so measure here.
         elapsed = time.monotonic() - started
-
         payload = _parse_agy_json(res.stdout)
+
         if payload is None:
             return ExecutionResult(
                 success=(res.returncode == 0),
@@ -127,6 +147,7 @@ class AgyRunner(AgyRunnerProtocol):
 
         status = str(payload.get("status", "")).upper()
         usage_data = payload.get("usage")
+        structured = payload.get("structured_output")
         return ExecutionResult(
             success=(res.returncode == 0 and status in ("", "SUCCESS")),
             stdout=payload.get("response", ""),
@@ -137,4 +158,37 @@ class AgyRunner(AgyRunnerProtocol):
             conversation_id=payload.get("conversation_id"),
             duration_seconds=elapsed,
             usage=Usage(**usage_data) if isinstance(usage_data, dict) else None,
+            structured_output=structured if isinstance(structured, dict) else None,
         )
+
+
+def log_delegation(
+    log_path: Path,
+    tool: str,
+    result: ExecutionResult,
+    verified: Optional[bool] = None,
+    refine_of: Optional[str] = None,
+) -> None:
+    """Append one line per delegation so the accept rate can be measured later.
+
+    Never let bookkeeping break a delegation.
+    """
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "tool": tool,
+        "target": result.target_file,
+        "agy_reported_success": result.success,
+        "verified": verified,
+        "refine_of": refine_of,
+        "conversation_id": result.conversation_id,
+        "duration_s": round(result.duration_seconds, 1) if result.duration_seconds else None,
+        "input_tokens": result.usage.input_tokens if result.usage else None,
+        "output_tokens": result.usage.output_tokens if result.usage else None,
+        "cached_tokens": result.usage.cache_read_tokens if result.usage else None,
+    }
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass

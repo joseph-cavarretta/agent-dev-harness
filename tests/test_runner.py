@@ -1,8 +1,10 @@
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from antigravity_mcp.config import Settings
-from antigravity_mcp.runner import AgyRunner, _parse_agy_json
+from antigravity_mcp.models import ExecutionResult, Usage
+from antigravity_mcp.runner import AgyRunner, _parse_agy_json, log_delegation
 
 AGY_JSON = {
     "conversation_id": "abc-123",
@@ -152,3 +154,65 @@ def test_parse_agy_json_skips_leading_log_lines() -> None:
 
 def test_parse_agy_json_returns_none_for_empty() -> None:
     assert _parse_agy_json("   ") is None
+
+
+def test_output_schema_and_overrides_reach_the_cli() -> None:
+    runner = AgyRunner(Settings())
+    schema = {"type": "object", "properties": {"n": {"type": "integer"}}}
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(AGY_JSON), stderr="")
+        result = runner.run_prompt(
+            "Classify", model="gemini-3.1-pro", effort="low", output_schema=schema
+        )
+
+    cmd = result.command
+    assert cmd[cmd.index("--model") + 1] == "gemini-3.1-pro"
+    assert cmd[cmd.index("--effort") + 1] == "low"
+    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == schema
+
+
+def test_structured_output_is_parsed_separately_from_prose() -> None:
+    runner = AgyRunner(Settings())
+    payload = {**AGY_JSON, "response": "chatty prose with toolAction noise",
+               "structured_output": {"severity": "high"}}
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+        result = runner.run_prompt("Classify")
+
+    assert result.structured_output == {"severity": "high"}
+    assert "toolAction" in result.stdout
+
+
+def test_invalid_effort_fails_before_spawning_agy() -> None:
+    runner = AgyRunner(Settings())
+
+    with patch("subprocess.run") as mock_run:
+        result = runner.run_prompt("anything", effort="ludicrous")
+
+    mock_run.assert_not_called()
+    assert result.success is False
+    assert "effort must be one of" in result.stderr
+
+
+def test_log_delegation_appends_a_row(tmp_path) -> None:
+    log = tmp_path / "nested" / "log.jsonl"
+    res = ExecutionResult(
+        success=True, stdout="", stderr="", exit_code=0, command=["agy"],
+        target_file="/tmp/x.py", conversation_id="c1", duration_seconds=3.14,
+        usage=Usage(input_tokens=10, output_tokens=2, cache_read_tokens=5),
+    )
+    log_delegation(log, "delegate_code_draft", res, verified=True, refine_of="c0")
+
+    row = json.loads(log.read_text(encoding="utf-8").strip())
+    assert row["tool"] == "delegate_code_draft"
+    assert row["verified"] is True
+    assert row["refine_of"] == "c0"
+    assert row["duration_s"] == 3.1
+    assert row["cached_tokens"] == 5
+
+
+def test_log_delegation_never_raises_on_a_bad_path() -> None:
+    res = ExecutionResult(success=True, stdout="", stderr="", exit_code=0, command=[])
+    log_delegation(Path("/proc/nope/cannot-write.jsonl"), "delegate_task", res)

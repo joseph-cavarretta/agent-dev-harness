@@ -8,10 +8,13 @@ class Settings(BaseSettings):
     default_effort: str = "high"
     default_timeout_seconds: int = 300
     timeout_grace_seconds: int = 30
+    verify_timeout_seconds: int = 300
+    max_verify_rounds: int = 4
     vault_path: Path = Path("/Users/joseph/.vault")
     vault_templates_path: Path = Path("/Users/joseph/.vault/_templates")
     dev_path: Path = Path("/Users/joseph/dev")
     dangerously_skip_permissions: bool = True
+    log_path: Path = Path("/Users/joseph/.claude/antigravity-delegations.jsonl")
 
     model_config = SettingsConfigDict(
         env_prefix="ANTIGRAVITY_MCP_",
