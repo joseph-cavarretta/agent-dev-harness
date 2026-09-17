@@ -14,14 +14,18 @@ install:
 	@$(MAKE) --no-print-directory merge-settings SOURCE=$(CURDIR)/claude/settings.json
 	@echo "Installed. Make sure ~/.claude/CLAUDE.md starts with: @CLAUDE.base.md"
 
-# Optional vault module: only installs when ~/.vault exists.
+# Optional vault module: only installs when ~/.vault exists. Each step is its own recipe line:
+# make runs any line containing $(MAKE) even under -n, so side effects must not share a line with it.
 install-vault:
-	@if [ ! -d "$(VAULT_DIR)" ]; then echo "No $(VAULT_DIR) — skipping vault module (run make vault-init first)"; exit 0; fi; \
-	mkdir -p "$(CLAUDE_DIR)/hooks"; \
-	ln -sfn "$(CURDIR)/vault/CLAUDE.vault.md" "$(CLAUDE_DIR)/CLAUDE.vault.md"; \
-	for hook in $(CURDIR)/vault/hooks/*.py; do ln -sfn "$$hook" "$(CLAUDE_DIR)/hooks/$$(basename $$hook)"; done; \
-	$(MAKE) --no-print-directory merge-settings SOURCE=$(CURDIR)/vault/settings.json; \
-	echo "Vault module installed. Add this line to ~/.claude/CLAUDE.md after the base import: @CLAUDE.vault.md"
+ifeq ($(wildcard $(VAULT_DIR)/.),)
+	@echo "No $(VAULT_DIR) — skipping vault module (run make vault-init first)"
+else
+	@mkdir -p "$(CLAUDE_DIR)/hooks"
+	@ln -sfn "$(CURDIR)/vault/CLAUDE.vault.md" "$(CLAUDE_DIR)/CLAUDE.vault.md"
+	@for hook in $(CURDIR)/vault/hooks/*.py; do ln -sfn "$$hook" "$(CLAUDE_DIR)/hooks/$$(basename $$hook)"; done
+	@$(MAKE) --no-print-directory merge-settings SOURCE=$(CURDIR)/vault/settings.json
+	@echo "Vault module installed. Add this line to ~/.claude/CLAUDE.md after the base import: @CLAUDE.vault.md"
+endif
 
 # Bootstrap a fresh knowledge base from the scaffold. Never overwrites an existing vault.
 vault-init:
