@@ -4,8 +4,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from antigravity_mcp.config import Settings
-from antigravity_mcp.models import ExecutionResult, Usage
+from delegate_mcp.config import Settings
+from delegate_mcp.models import ExecutionResult, Usage
 
 VALID_EFFORTS = ("low", "medium", "high")
 
@@ -178,7 +178,7 @@ def log_delegation(
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "tool": tool,
         "target": result.target_file,
-        "agy_reported_success": result.success,
+        "worker_reported_success": result.success,
         "verified": verified,
         "verify_rounds": verify_rounds,
         "refine_of": refine_of,

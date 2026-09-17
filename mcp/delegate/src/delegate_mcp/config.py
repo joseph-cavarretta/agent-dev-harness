@@ -16,11 +16,11 @@ class Settings(BaseSettings):
     dev_path: Path = Field(default_factory=lambda: Path.home() / "dev")
     dangerously_skip_permissions: bool = True
     log_path: Path = Field(
-        default_factory=lambda: Path.home() / ".claude" / "antigravity-delegations.jsonl"
+        default_factory=lambda: Path.home() / ".claude" / "delegations.jsonl"
     )
 
     model_config = SettingsConfigDict(
-        env_prefix="ANTIGRAVITY_MCP_",
+        env_prefix="DELEGATE_MCP_",
         case_sensitive=False,
     )
 

@@ -34,7 +34,7 @@ vault-init:
 mcp:
 	@cd "$(CURDIR)/mcp/delegate" && uv sync
 	@echo "Register the server in ~/.claude.json under mcpServers:"
-	@echo "  \"antigravity\": {\"command\": \"uv\", \"args\": [\"run\", \"--directory\", \"$(CURDIR)/mcp/delegate\", \"antigravity-mcp\"]}"
+	@echo "  \"delegate\": {\"command\": \"uv\", \"args\": [\"run\", \"--directory\", \"$(CURDIR)/mcp/delegate\", \"delegate-mcp\"]}"
 
 # Removes symlinks that point into this repo. Leaves settings.json alone.
 uninstall:

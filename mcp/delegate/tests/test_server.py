@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import pytest
-from antigravity_mcp.config import Settings
-from antigravity_mcp.models import ExecutionResult, Usage, Verification
-from antigravity_mcp.server import create_server
+from delegate_mcp.config import Settings
+from delegate_mcp.models import ExecutionResult, Usage, Verification
+from delegate_mcp.server import create_server
 
 TOOL_NAMES = (
     "delegate_task",
@@ -102,6 +102,7 @@ class DummyVerifier:
 
 
 def _settings(tmp_path: Path) -> Settings:
+    (tmp_path / "vault").mkdir(exist_ok=True)
     return Settings(
         vault_path=tmp_path / "vault",
         vault_templates_path=tmp_path / "vault" / "_templates",
@@ -468,3 +469,22 @@ def test_verify_rounds_are_logged(tmp_path: Path) -> None:
     row = json.loads(settings.log_path.read_text(encoding="utf-8").splitlines()[0])
     assert row["verify_rounds"] == 2
     assert row["verified"] is True
+
+
+def test_vault_tool_is_not_offered_without_a_vault(tmp_path: Path) -> None:
+    settings = Settings(vault_path=tmp_path / "no-vault", dev_path=tmp_path / "dev", log_path=tmp_path / "d.jsonl")
+    server = create_server(settings=settings, runner=DummyRunner(), verifier=DummyVerifier())
+    assert server._tool_manager.get_tool("delegate_vault_document") is None
+    assert server._tool_manager.get_tool("delegate_task") is not None
+
+
+def test_delegation_stats_counts_logs_written_before_the_rename(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.log_path.write_text(
+        json.dumps({"tool": "delegate_task", "agy_reported_success": True, "verified": False}) + "\n",
+        encoding="utf-8",
+    )
+    server = create_server(settings=settings, runner=DummyRunner(), verifier=DummyVerifier())
+    result = _tool(server, "delegation_stats").fn()
+    assert "Worker reported success: 1/1" in result
+    assert "disagreed with the check 1 time(s)" in result

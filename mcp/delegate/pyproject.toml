@@ -1,7 +1,7 @@
 [project]
-name = "antigravity-mcp"
+name = "delegate-mcp"
 version = "0.1.0"
-description = "FastMCP server bridging Claude Code with Antigravity CLI (Gemini 3.7 Flash High Effort)"
+description = "MCP server that delegates work from Claude Code to a worker agent CLI and verifies the result"
 authors = [
     { name = "Joseph Cavarretta", email = "j.cavarretta@proton.me" }
 ]
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-antigravity-mcp = "antigravity_mcp.main:main"
+delegate-mcp = "delegate_mcp.main:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

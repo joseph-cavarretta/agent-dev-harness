@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional, Protocol
-from antigravity_mcp.models import ExecutionResult, Verification
+from delegate_mcp.models import ExecutionResult, Verification
 
 
-class AgyRunnerProtocol(Protocol):
+class WorkerRunnerProtocol(Protocol):
     def run_prompt(
         self,
         prompt: str,

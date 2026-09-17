@@ -78,7 +78,7 @@
       "Glob(~/dev/**)",
       "Grep(~/dev/**)",
       "Bash(agy *)",
-      "mcp__antigravity__*"
+      "mcp__delegate__*"
     ],
     "deny": [
       "Bash(pip install *)",

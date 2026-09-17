@@ -1,5 +1,5 @@
 from pathlib import Path
-from antigravity_mcp.config import Settings
+from delegate_mcp.config import Settings
 
 
 def test_default_settings() -> None:

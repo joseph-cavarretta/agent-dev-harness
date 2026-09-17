@@ -52,8 +52,8 @@ installed) and then adds its own machine-specific sections
 - Treat Notion as read-only — never use Notion write/delete tools
 - `agy` runs with permissions auto-approved and can write anywhere under `~/dev` and `~/.vault`. Scope every delegation to the narrowest `working_directory` that works, and never delegate anything touching secrets or IaC
 
-## Delegating to Antigravity (`agy`)
-- Claude orchestrates and reviews; `agy` does the bulk work. Server: `~/dev/agent-dev-harness/mcp/delegate`.
+## Delegating to a worker agent (`agy`)
+- Claude orchestrates and reviews; the worker (`agy`, Google Antigravity) does the bulk work through the `delegate` MCP server at `~/dev/agent-dev-harness/mcp/delegate`.
 - **The gate is a verifier, not a line count.** If a command can prove the work is right, delegating wins at almost any size. If correctness can only be judged by reading, delegating usually loses — the review costs more than writing it.
   - `delegate_code_draft` + `verify_command` — `agy` loops until the command passes, then the server re-runs it independently. Always pass one when it exists.
   - `delegate_task` + `output_schema` — for anything consumed programmatically (findings, extractions, sweeps). Schema-valid output beats parsing prose.

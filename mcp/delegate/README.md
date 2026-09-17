@@ -1,6 +1,6 @@
-# antigravity-mcp
+# delegate-mcp
 
-FastMCP server that lets Claude Code delegate bulk work to the Antigravity CLI (`agy`), then proves the result instead of trusting it.
+MCP server that lets Claude Code delegate bulk work to a worker agent CLI, then proves the result instead of trusting it. The first (and only) worker backend is the Antigravity CLI (`agy`); runners sit behind `WorkerRunnerProtocol`, so another CLI can be added without touching the tools.
 
 Claude orchestrates and reviews; `agy` does the volume. The rules deciding *when* to reach for it live in `~/.claude/CLAUDE.base.md`.
 
@@ -20,7 +20,7 @@ Everything here follows from that:
 |---|---|---|
 | `delegate_task` | Bulk reading, multi-repo sweeps, extraction | `output_schema`, when supplied |
 | `delegate_code_draft` | Writing a file to a spec | `verify_command` |
-| `delegate_vault_document` | Long vault prose from facts you supply, following `~/.vault/_templates/` | none — you review all of it |
+| `delegate_vault_document` | Long vault prose from facts you supply, following `~/.vault/_templates/`. Only offered when `vault_path` exists | none — you review all of it |
 | `refine_delegation` | Corrections to an earlier call, via its `conversation_id` | `verify_command`, when supplied |
 | `delegation_stats` | Whether delegating is actually paying off | — |
 
@@ -42,9 +42,9 @@ The loop lives here rather than in the prompt because `agy`'s shell starts in a 
 Requires the `agy` binary (default `~/.local/bin/agy`) and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone git@github.com:joseph-cavarretta/antigravity-mcp.git ~/dev/antigravity-mcp
-cd ~/dev/antigravity-mcp
-uv sync
+git clone git@github.com:joseph-cavarretta/agent-dev-harness.git ~/dev/agent-dev-harness
+cd ~/dev/agent-dev-harness
+make mcp        # uv sync + prints the registration snippet
 ```
 
 Register the server in `~/.claude.json`:
@@ -52,21 +52,21 @@ Register the server in `~/.claude.json`:
 ```json
 {
   "mcpServers": {
-    "antigravity": {
+    "delegate": {
       "command": "uv",
-      "args": ["run", "--directory", "/home/you/dev/antigravity-mcp", "antigravity-mcp"]
+      "args": ["run", "--directory", "/home/you/dev/agent-dev-harness/mcp/delegate", "delegate-mcp"]
     }
   }
 }
 ```
 
 The path must be absolute — `~` is not expanded here. Allow `Bash(agy *)` and
-`mcp__antigravity__*` in your Claude Code permissions.
+`mcp__delegate__*` in your Claude Code permissions (the harness `claude/settings.json` already does).
 
 ## Configuration
 
-`Settings` is a `BaseSettings` model. Every field is overridable with an `ANTIGRAVITY_MCP_` prefixed
-environment variable, e.g. `ANTIGRAVITY_MCP_DEFAULT_EFFORT=low`.
+`Settings` is a `BaseSettings` model. Every field is overridable with a `DELEGATE_MCP_` prefixed
+environment variable, e.g. `DELEGATE_MCP_DEFAULT_EFFORT=low`.
 
 | Setting | Default |
 |---|---|
@@ -81,7 +81,7 @@ environment variable, e.g. `ANTIGRAVITY_MCP_DEFAULT_EFFORT=low`.
 | `vault_templates_path` | `~/.vault/_templates` |
 | `dev_path` | `~/dev` |
 | `dangerously_skip_permissions` | `true` |
-| `log_path` | `~/.claude/antigravity-delegations.jsonl` |
+| `log_path` | `~/.claude/delegations.jsonl` |
 
 `timeout_grace_seconds` is deliberate: the subprocess gets a longer leash than `agy`'s own
 `--print-timeout` so `agy` times out first and its error message survives.

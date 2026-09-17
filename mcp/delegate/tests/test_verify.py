@@ -1,5 +1,5 @@
 from pathlib import Path
-from antigravity_mcp.verify import MAX_OUTPUT_CHARS, ShellVerifier
+from delegate_mcp.verify import MAX_OUTPUT_CHARS, ShellVerifier
 
 
 def test_passing_command() -> None:

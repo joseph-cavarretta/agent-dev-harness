@@ -2,9 +2,9 @@ import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from antigravity_mcp.config import Settings
-from antigravity_mcp.models import ExecutionResult, Usage
-from antigravity_mcp.runner import AgyRunner, _parse_agy_json, log_delegation
+from delegate_mcp.config import Settings
+from delegate_mcp.models import ExecutionResult, Usage
+from delegate_mcp.runner import AgyRunner, _parse_agy_json, log_delegation
 
 AGY_JSON = {
     "conversation_id": "abc-123",

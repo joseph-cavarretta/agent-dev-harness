@@ -1,4 +1,4 @@
-from antigravity_mcp.server import create_server
+from delegate_mcp.server import create_server
 
 
 def main() -> None:

@@ -1,5 +1,5 @@
 import subprocess
-from antigravity_mcp.models import Verification
+from delegate_mcp.models import Verification
 
 MAX_OUTPUT_CHARS = 6000
 

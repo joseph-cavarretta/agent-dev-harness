@@ -3,12 +3,12 @@ from pathlib import Path
 from typing import Annotated, Any, Dict, List, Literal, Optional
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
-from antigravity_mcp import prompts
-from antigravity_mcp.config import Settings
-from antigravity_mcp.models import ExecutionResult, Verification
-from antigravity_mcp.protocols import AgyRunnerProtocol, CommandVerifierProtocol
-from antigravity_mcp.runner import AgyRunner, log_delegation
-from antigravity_mcp.verify import ShellVerifier
+from delegate_mcp import prompts
+from delegate_mcp.config import Settings
+from delegate_mcp.models import ExecutionResult, Verification
+from delegate_mcp.protocols import WorkerRunnerProtocol, CommandVerifierProtocol
+from delegate_mcp.runner import AgyRunner, log_delegation
+from delegate_mcp.verify import ShellVerifier
 
 TEMPLATE_BY_FOLDER = {
     "wiki/": "wiki",
@@ -38,7 +38,7 @@ def _usage_line(res: ExecutionResult) -> Optional[str]:
     if res.usage is None:
         return None
     u = res.usage
-    line = f"Delegated to agy: {u.input_tokens:,} in / {u.output_tokens:,} out"
+    line = f"Delegated to worker: {u.input_tokens:,} in / {u.output_tokens:,} out"
     if u.cache_read_tokens:
         line += f" ({u.cache_read_tokens:,} cached)"
     if res.duration_seconds:
@@ -125,16 +125,21 @@ def _format_response(
     return "\n".join(lines)
 
 
+def _worker_reported_success(row: Dict[str, Any]) -> bool:
+    # Logs written before the rename use the old key; keep counting them.
+    return bool(row.get("worker_reported_success", row.get("agy_reported_success")))
+
+
 def create_server(
     settings: Optional[Settings] = None,
-    runner: Optional[AgyRunnerProtocol] = None,
+    runner: Optional[WorkerRunnerProtocol] = None,
     verifier: Optional[CommandVerifierProtocol] = None,
 ) -> MCPServer:
     cfg = settings or Settings()
     exec_runner = runner or AgyRunner(cfg)
     exec_verifier = verifier or ShellVerifier()
 
-    server = MCPServer("antigravity-worker")
+    server = MCPServer("delegate")
 
     @server.tool()
     def delegate_task(
@@ -217,7 +222,7 @@ def create_server(
             ]
         )
         return _format_response(
-            "Antigravity Execution", res, review, notes=[f"Working directory: {work_dir}"]
+            "Delegated Task", res, review, notes=[f"Working directory: {work_dir}"]
         )
 
     @server.tool()
@@ -400,7 +405,6 @@ def create_server(
             verification=verification,
         )
 
-    @server.tool()
     def delegate_vault_document(
         relative_path: Annotated[
             str,
@@ -551,6 +555,10 @@ def create_server(
             notes=notes,
         )
 
+    # Only offered where a vault exists, so the server also works on machines without one.
+    if cfg.vault_path.exists():
+        server.tool()(delegate_vault_document)
+
     @server.tool()
     def refine_delegation(
         conversation_id: Annotated[
@@ -673,13 +681,13 @@ def create_server(
         total = len(recent)
         refines = sum(1 for r in recent if r.get("refine_of"))
         first_attempts = total - refines
-        agy_ok = sum(1 for r in recent if r.get("agy_reported_success"))
+        worker_ok = sum(1 for r in recent if _worker_reported_success(r))
         checked = [r for r in recent if r.get("verified") is not None]
         verified_ok = sum(1 for r in checked if r.get("verified"))
         disagreed = sum(
             1
             for r in checked
-            if bool(r.get("verified")) != bool(r.get("agy_reported_success"))
+            if bool(r.get("verified")) != _worker_reported_success(r)
         )
         tokens_in = sum(r.get("input_tokens") or 0 for r in recent)
         tokens_out = sum(r.get("output_tokens") or 0 for r in recent)
@@ -700,11 +708,11 @@ def create_server(
             lines.append(
                 f"Correction rate: {refines / first_attempts:.0%} of first attempts needed a refine"
             )
-        lines.append(f"agy reported success: {agy_ok}/{total}")
+        lines.append(f"Worker reported success: {worker_ok}/{total}")
         if checked:
             lines.append(f"Independently verified: {verified_ok}/{len(checked)} passed")
             lines.append(
-                f"agy's status disagreed with the check {disagreed} time(s)"
+                f"The worker's status disagreed with the check {disagreed} time(s)"
                 " — a reminder not to trust its self-report"
             )
         else:
@@ -714,8 +722,8 @@ def create_server(
         lines.extend(
             [
                 "",
-                f"agy tokens: {tokens_in:,} in / {tokens_out:,} out ({cached:,} cached)",
-                f"agy wall-clock: {seconds / 60:.0f} min",
+                f"Worker tokens: {tokens_in:,} in / {tokens_out:,} out ({cached:,} cached)",
+                f"Worker wall-clock: {seconds / 60:.0f} min",
                 "",
                 "By tool: " + ", ".join(f"{k}={v}" for k, v in sorted(by_tool.items())),
                 "",
