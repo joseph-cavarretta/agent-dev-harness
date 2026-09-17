@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(~/.vault/**)",
+      "Glob(~/.vault/**)",
+      "Grep(~/.vault/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/wiki-repo-staleness.py",
+            "if": "Read(~/.vault/wiki/repos/*)",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/preload-core-reference.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
