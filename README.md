@@ -42,7 +42,7 @@ The loop lives here rather than in the prompt because `agy`'s shell starts in a 
 Requires the `agy` binary (default `~/.local/bin/agy`) and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-make antigravity-mcp        # from the dotfiles root; symlinks this package into ~/dev
+git clone git@github.com:joseph-cavarretta/antigravity-mcp.git ~/dev/antigravity-mcp
 cd ~/dev/antigravity-mcp
 uv sync
 ```
@@ -60,8 +60,8 @@ Register the server in `~/.claude.json`:
 }
 ```
 
-The path must be absolute — `~` is not expanded here. The `claude` stow package already allows
-`Bash(agy *)` and `mcp__antigravity__*`.
+The path must be absolute — `~` is not expanded here. Allow `Bash(agy *)` and
+`mcp__antigravity__*` in your Claude Code permissions.
 
 ## Configuration
 
