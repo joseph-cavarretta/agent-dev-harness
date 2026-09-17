@@ -1,0 +1,199 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv *)",
+      "Bash(pytest *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pyenv *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git show*)",
+      "Bash(git stash*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git fetch*)",
+      "Bash(git rebase *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr create *)",
+      "Bash(gh issue *)",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(terraform fmt*)",
+      "Bash(terraform validate*)",
+      "Bash(terraform plan*)",
+      "Bash(terraform init*)",
+      "Bash(terraform workspace list*)",
+      "Bash(terraform workspace select *)",
+      "Bash(terraform output*)",
+      "Bash(terraform show*)",
+      "Bash(terraform state list*)",
+      "Bash(terraform state show *)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl top *)",
+      "Bash(kubectl config *)",
+      "Bash(kubectl auth can-i *)",
+      "Bash(kubectl explain *)",
+      "Bash(kubectl api-resources*)",
+      "Bash(helm list*)",
+      "Bash(helm status *)",
+      "Bash(helm get *)",
+      "Bash(helm show *)",
+      "Bash(helm template *)",
+      "Bash(helm lint *)",
+      "Bash(helm diff *)",
+      "Bash(helm repo *)",
+      "Bash(helm search *)",
+      "Bash(docker build *)",
+      "Bash(docker compose build *)",
+      "Bash(docker compose up *)",
+      "Bash(docker compose down *)",
+      "Bash(docker compose logs *)",
+      "Bash(docker compose ps*)",
+      "Bash(docker ps*)",
+      "Bash(docker logs *)",
+      "Bash(docker images*)",
+      "Bash(jq *)",
+      "Bash(yq *)",
+      "Bash(make *)",
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(xargs cat *)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Read(~/dev/**)",
+      "Glob(~/dev/**)",
+      "Grep(~/dev/**)",
+      "Bash(agy *)",
+      "mcp__antigravity__*"
+    ],
+    "deny": [
+      "Bash(pip install *)",
+      "Bash(pip *)",
+      "Bash(git merge *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git config *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr comment *)",
+      "Bash(kubectl apply *)",
+      "Bash(kubectl create *)",
+      "Bash(kubectl delete *)",
+      "Bash(kubectl edit *)",
+      "Bash(kubectl patch *)",
+      "Bash(kubectl scale *)",
+      "Bash(kubectl rollout *)",
+      "Bash(kubectl exec *)",
+      "Bash(kubectl run *)",
+      "Bash(kubectl replace *)",
+      "Bash(kubectl set *)",
+      "Bash(kubectl cordon *)",
+      "Bash(kubectl uncordon *)",
+      "Bash(kubectl drain *)",
+      "Bash(kubectl taint *)",
+      "Bash(kubectl label *)",
+      "Bash(kubectl annotate *)",
+      "Bash(kubectl cp *)",
+      "Bash(kubectl port-forward *)",
+      "Bash(kubectl debug:*)",
+      "Bash(kubectl attach:*)",
+      "Bash(helm install *)",
+      "Bash(helm upgrade *)",
+      "Bash(helm uninstall *)",
+      "Bash(helm rollback *)",
+      "Bash(helm delete *)",
+      "Bash(terraform apply*)",
+      "Bash(terraform destroy*)",
+      "Bash(terraform import *)",
+      "Bash(terraform taint *)",
+      "Bash(terraform untaint *)",
+      "Bash(pgcli *)",
+      "Bash(dropdb *)",
+      "Bash(createdb *)",
+      "Bash(pg_dump *)",
+      "Bash(pg_restore *)",
+      "Bash(psql * -c *DROP*)",
+      "Bash(psql * -c *TRUNCATE*)",
+      "Bash(psql * -c *DELETE *)",
+      "Bash(psql * -c *UPDATE *)",
+      "Bash(psql * -c *INSERT *)",
+      "Bash(psql * -c *ALTER *)",
+      "Bash(psql * -c *GRANT *)",
+      "Bash(psql * -c *REVOKE *)",
+      "Bash(psql * -f *)",
+      "Bash(rm -rf *)",
+      "Bash(rm -r *)",
+      "mcp__claude_ai_Notion__notion-create-pages",
+      "mcp__claude_ai_Notion__notion-create-database",
+      "mcp__claude_ai_Notion__notion-create-comment",
+      "mcp__claude_ai_Notion__notion-create-view",
+      "mcp__claude_ai_Notion__notion-update-page",
+      "mcp__claude_ai_Notion__notion-update-view",
+      "mcp__claude_ai_Notion__notion-update-data-source",
+      "mcp__claude_ai_Notion__notion-move-pages",
+      "mcp__claude_ai_Notion__notion-duplicate-page"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/secret-scanner.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/git-commit-guard.py",
+            "if": "Bash(git commit *)",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/audit-log.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/precompact-snapshot.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
