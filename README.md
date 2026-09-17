@@ -1,0 +1,61 @@
+# agent-dev-harness
+
+The standards, guardrails, and tools I use to hold AI coding agents to the same review bar as any other contributor. It installs into Claude Code and covers what the agent is told, what it is allowed to do, what gets checked mechanically, and how work is delegated to a cheaper worker agent without trusting its self-reports.
+
+## Principles
+
+- **Verify, don't trust.** An agent's claim that something passed is not evidence. Checks are run by the tooling itself: the delegation server re-runs the test command, hooks inspect the actual write or commit.
+- **Destructive commands are denied, not discouraged.** `terraform apply`, `kubectl apply/delete`, force pushes, `git reset --hard`, merges, destructive SQL, and `rm -r` are blocked in settings, whatever the prompt says.
+- **Standards are enforced by config, not restated in prose.** The style guide points at a strict shared ruff baseline and a docstring checker; the instructions say what the config can't.
+- **Measure whether delegation pays off.** Every delegation is logged, and the stats report how often the worker's self-report disagreed with the real check.
+
+## What's here
+
+| Path | What it does |
+|---|---|
+| `claude/CLAUDE.base.md` | Shared instructions: code, testing, git, writing style, and when to delegate |
+| `claude/settings.json` | Permission allow/deny baseline and hook wiring |
+| `claude/hooks/` | `secret-scanner` (blocks writes containing keys or tokens), `git-commit-guard` (rejects commit messages off the `type(scope): description` format), `audit-log` (logs every shell command), `precompact-snapshot` (keeps in-progress work through context compaction) |
+| `python-styleguide/` | The Python style guide, `ruff-base.toml` (strict lint and format baseline repos extend), and `docstring_length.py` (flags sprawling docstrings) |
+| `mcp/delegate/` | MCP server that hands bulk reading and code drafting to a worker agent CLI and verifies the result. See its [README](mcp/delegate/README.md) |
+| `vault/` | Optional module for a Markdown knowledge base: instructions, two hooks, and an empty scaffold |
+
+## Install
+
+Requires [Claude Code](https://docs.claude.com/en/docs/claude-code), `jq`, and [uv](https://docs.astral.sh/uv/).
+
+```bash
+git clone git@github.com:joseph-cavarretta/agent-dev-harness.git ~/dev/agent-dev-harness
+cd ~/dev/agent-dev-harness
+make install
+```
+
+`make install` symlinks `CLAUDE.base.md` and the hooks into `~/.claude/`, then merges `claude/settings.json` into `~/.claude/settings.json`. It merges rather than symlinks because Claude Code writes model and theme choices into that file. Objects merge, permission and hook lists are combined, and your own keys are kept; the previous file is saved as `settings.json.bak`. Removing a rule here does not remove it from an existing install.
+
+Then start `~/.claude/CLAUDE.md` with the import, and add anything machine-specific below it:
+
+```markdown
+@CLAUDE.base.md
+```
+
+Optional targets:
+
+```bash
+make mcp            # uv sync the delegation server and print its ~/.claude.json entry
+make vault-init     # create ~/.vault from the scaffold (never overwrites)
+make install-vault  # vault instructions, hooks, and settings; skipped without ~/.vault
+make uninstall      # remove symlinks into this repo (settings.json is left alone)
+```
+
+To use the ruff baseline in another repo, extend it rather than copying it:
+
+```toml
+[tool.ruff]
+extend = "../agent-dev-harness/python-styleguide/ruff-base.toml"
+```
+
+## Development
+
+```bash
+cd mcp/delegate && uv run pytest
+```
