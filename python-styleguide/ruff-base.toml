@@ -1,0 +1,95 @@
+# Shared ruff baseline. Repos extend this rather than copying it:
+#
+#     # pyproject.toml
+#     [tool.ruff]
+#     extend = "../agent-dev-harness/python-styleguide/ruff-base.toml"
+#
+# Rules here back rules in python-styleguide.md. Relax in the consuming repo, not here.
+
+line-length = 88
+indent-width = 4
+target-version = "py311"
+
+extend-exclude = [".local"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+
+[lint]
+exclude = ["**/scripts/**"]  # full glob: [lint].exclude does not match bare names
+
+select = [
+    "F",      # pyflakes
+    "E", "W", # pycodestyle -- W505 (prose width) needs max-doc-length below
+    "I",      # import sorting
+    "N",      # pep8-naming
+    "UP",     # pyupgrade: builtin generics, collections.abc, X | Y
+    "ANN",    # missing annotations
+    "S",      # bandit -- S101 catches assert outside tests
+    "B",      # bugbear -- B006 mutable defaults, B904 raise-from
+    "A",      # builtin shadowing
+    "C4",     # comprehensions
+    "DTZ",    # naive datetimes
+    "ERA",    # commented-out code
+    "G",      # logging: no f-strings in log calls
+    "LOG",    # logging misuse
+    "PIE",
+    "PT",     # pytest style
+    "PTH",    # pathlib over os.path
+    "RET",    # return simplification
+    "SIM",    # simplification
+    "SLF",    # private member access
+    "TC",     # typing-only imports -> TYPE_CHECKING
+    "TID",    # TID252 relative imports
+    "ARG",    # unused arguments
+    "ASYNC",  # blocking calls in async context
+    "C90",    # mccabe complexity
+    "PL",     # pylint: argument count, statement count, branches
+    "RUF",
+    # No pydocstyle `convention`: "google" demands the Args:/Returns: blocks the
+    # guide bans. D100/D104/D107 omitted -- no module, package, or __init__ docstrings.
+    "D101", "D102", "D103",          # class/method/function docstring required
+    "D200", "D201", "D202", "D205",  # shape of the docstring itself
+    "D209", "D210", "D211", "D212",
+    "D300", "D400", "D403", "D415",
+    "D419",
+]
+
+ignore = ["E501"]  # code width is the formatter's; W505 covers prose
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S101", "D1"]
+"**/test_*.py" = ["S101", "D1"]
+"**/conftest.py" = ["S101", "D1"]
+
+[lint.pycodestyle]
+max-doc-length = 88
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"  # default "parents" still allows `from . import x`
+
+[lint.flake8-type-checking]
+# Required for Pydantic: without it TC003 moves field-annotation imports into
+# TYPE_CHECKING and model construction fails at import.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+]
+
+[lint.isort]
+# Each repo must set its own first-party packages:
+#     [tool.ruff.lint.isort]
+#     known-first-party = ["shared", "content_search"]
+required-imports = []
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 6
+max-statements = 50
+max-branches = 12
