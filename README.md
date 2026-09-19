@@ -1,13 +1,6 @@
 # agent-dev-harness
 
-The standards, guardrails, and tools I use to hold AI coding agents to the same review bar as any other contributor. It installs into Claude Code and covers what the agent is told, what it is allowed to do, what gets checked mechanically, and how work is delegated to a cheaper worker agent without trusting its self-reports.
-
-## Principles
-
-- **Verify, don't trust.** An agent's claim that something passed is not evidence. Checks are run by the tooling itself: the delegation server re-runs the test command, hooks inspect the actual write or commit.
-- **Destructive commands are denied, not discouraged.** `terraform apply`, `kubectl apply/delete`, force pushes, `git reset --hard`, merges, destructive SQL, and `rm -r` are blocked in settings, whatever the prompt says.
-- **Standards are enforced by config, not restated in prose.** The style guide points at a strict shared ruff baseline and a docstring checker; the instructions say what the config can't.
-- **Measure whether delegation pays off.** Every delegation is logged, and the stats report how often the worker's self-report disagreed with the real check.
+The standards, guardrails, and tools I use to for AI coding agents. Installs into Claude Code.
 
 ## What's here
 
