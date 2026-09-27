@@ -1,8 +1,9 @@
 CLAUDE_DIR := $(HOME)/.claude
 VAULT_DIR := $(HOME)/.vault
+BIN_DIR := $(HOME)/.local/bin
 SETTINGS := $(CLAUDE_DIR)/settings.json
 
-.PHONY: install install-vault vault-init mcp uninstall
+.PHONY: install install-vault vault-init install-tools test-tools mcp uninstall
 
 # Symlink the base instructions and hooks, then merge the managed settings keys into
 # ~/.claude/settings.json. A merge rather than a symlink: Claude Code writes /model and theme
@@ -35,6 +36,16 @@ vault-init:
 		cp -r "$(CURDIR)/vault/scaffold" "$(VAULT_DIR)" && echo "Created $(VAULT_DIR)"; \
 	fi
 
+# Link the ah-* scripts onto PATH. The tools-index hook (from `make install`) lists them
+# in every session.
+install-tools:
+	@mkdir -p "$(BIN_DIR)"
+	@for script in $(CURDIR)/tools/bin/ah-*; do [ -e "$$script" ] || continue; ln -sfn "$$script" "$(BIN_DIR)/$$(basename $$script)"; done
+	@echo "Tools installed. Make sure $(BIN_DIR) is on PATH."
+
+test-tools:
+	@uv run --no-project --with pytest pytest -q "$(CURDIR)/tools/tests"
+
 mcp:
 	@cd "$(CURDIR)/mcp/delegate" && uv sync
 	@echo "Register the server in ~/.claude.json under mcpServers:"
@@ -42,7 +53,8 @@ mcp:
 
 # Removes symlinks that point into this repo. Leaves settings.json alone.
 uninstall:
-	@for link in "$(CLAUDE_DIR)"/CLAUDE.base.md "$(CLAUDE_DIR)"/CLAUDE.vault.md "$(CLAUDE_DIR)"/hooks/*.py; do \
+	@for link in "$(CLAUDE_DIR)"/CLAUDE.base.md "$(CLAUDE_DIR)"/CLAUDE.vault.md "$(CLAUDE_DIR)"/hooks/*.py \
+		"$(BIN_DIR)"/ah-*; do \
 		if [ -L "$$link" ] && readlink "$$link" | grep -q "^$(CURDIR)/"; then rm "$$link" && echo "removed $$link"; fi; \
 	done
 

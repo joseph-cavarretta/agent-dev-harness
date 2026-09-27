@@ -78,7 +78,8 @@
       "Glob(~/dev/**)",
       "Grep(~/dev/**)",
       "Bash(agy *)",
-      "mcp__delegate__*"
+      "mcp__delegate__*",
+      "Bash(ah-*)"
     ],
     "deny": [
       "Bash(pip install *)",
@@ -180,6 +181,17 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/audit-log.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/tools-index.py",
+            "timeout": 5
           }
         ]
       }

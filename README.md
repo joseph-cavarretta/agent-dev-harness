@@ -18,6 +18,7 @@ The standards, guardrails, and tools I use to hold AI coding agents to the same 
 | `claude/hooks/` | `secret-scanner` (blocks writes containing keys or tokens), `git-commit-guard` (rejects commit messages off the `type(scope): description` format), `audit-log` (logs every shell command), `precompact-snapshot` (keeps in-progress work through context compaction) |
 | `python-styleguide/` | The Python style guide, `ruff-base.toml` (strict lint and format baseline repos extend), and `docstring_length.py` (flags sprawling docstrings) |
 | `mcp/delegate/` | MCP server that hands bulk reading and code drafting to a worker agent CLI and verifies the result. See its [README](mcp/delegate/README.md) |
+| `tools/` | Read-only `ah-*` scripts the agent runs instead of improvising commands, listed in every session by the `tools-index` SessionStart hook. See its [README](tools/README.md) |
 | `vault/` | Optional module for a Markdown knowledge base: instructions, two hooks, and an empty scaffold |
 
 ## Install
@@ -44,6 +45,7 @@ Optional targets:
 make mcp            # uv sync the delegation server and print its ~/.claude.json entry
 make vault-init     # create ~/.vault from the scaffold (never overwrites)
 make install-vault  # vault instructions, hooks, and settings; skipped without ~/.vault
+make install-tools  # link the ah-* scripts into ~/.local/bin
 make uninstall      # remove symlinks into this repo (settings.json is left alone)
 ```
 
@@ -58,4 +60,5 @@ extend = "../agent-dev-harness/python-styleguide/ruff-base.toml"
 
 ```bash
 cd mcp/delegate && uv run pytest
+make test-tools
 ```
