@@ -1,0 +1,176 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pydantic>=2"]
+# ///
+# summary: Git state of every repo in ~/dev in one line each (branch, ahead/behind, uncommitted, stashes, open PRs). Use instead of git status/log/stash per repo.
+"""One line per git repo under a root: branch, dirty files, ahead/behind, stashes, PRs.
+
+Ahead/behind is against the upstream as of the last fetch; this script never fetches.
+Open PRs come from one `gh search prs --author @me` call; pass --no-pr to skip it.
+"""
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+
+_GH_PRS = (
+    "gh search prs --author @me --state open --json repository,number --limit 100"
+).split()
+
+
+class RepoStatus(BaseModel):
+    """One repo's state; ahead/behind are relative to the last fetch."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    name: str
+    branch: str
+    upstream: str | None
+    ahead: int
+    behind: int
+    modified: int
+    untracked: int
+    stashes: int
+    prs: list[str]
+
+    @property
+    def clean(self) -> bool:
+        """True when there is nothing to commit, push, pull or unstash."""
+        counts = (self.ahead, self.behind, self.modified, self.untracked, self.stashes)
+        return not any(counts)
+
+
+# gh output is external, so extra fields are ignored rather than rejected: a
+# new field from a gh upgrade shouldn't break the script.
+class _GhRepo(BaseModel):
+    """The `repository` object in `gh search prs --json` output."""
+
+    model_config = ConfigDict(strict=True, extra="ignore", frozen=True)
+    name: str
+
+
+class _GhPr(BaseModel):
+    """One row of `gh search prs --json repository,number`."""
+
+    model_config = ConfigDict(strict=True, extra="ignore", frozen=True)
+    repository: _GhRepo
+    number: int
+
+
+_GH_PRS_ADAPTER = TypeAdapter(list[_GhPr])
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run git in `repo`; the caller checks the return code."""
+    return subprocess.run(  # noqa: S603
+        # --no-optional-locks stops `git status` rewriting .git/index.
+        ["git", "--no-optional-locks", "-C", str(repo), *args],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def read_repo(repo: Path, prs: list[str]) -> RepoStatus:
+    """Parse `git status --porcelain=v2 --branch` plus the stash reflog."""
+    out = _git(repo, "status", "--porcelain=v2", "--branch").stdout
+    branch, upstream, ahead, behind, modified, untracked = "?", None, 0, 0, 0, 0
+    for line in out.splitlines():
+        if line.startswith("# branch.head "):
+            branch = line.split(" ", 2)[2]
+        elif line.startswith("# branch.upstream "):
+            upstream = line.split(" ", 2)[2]
+        elif line.startswith("# branch.ab "):
+            _, _, a, b = line.split()
+            ahead, behind = int(a), -int(b)
+        elif line.startswith("?"):
+            untracked += 1
+        elif not line.startswith("#"):
+            modified += 1
+    # No stash ref at all is a git error, which means zero stashes.
+    stash = _git(repo, "rev-list", "--walk-reflogs", "--count", "refs/stash", "--")
+    stashes = int(stash.stdout) if stash.returncode == 0 else 0
+    return RepoStatus(
+        name=repo.name,
+        branch=branch,
+        upstream=upstream,
+        ahead=ahead,
+        behind=behind,
+        modified=modified,
+        untracked=untracked,
+        stashes=stashes,
+        prs=prs,
+    )
+
+
+def open_prs(timeout: float) -> dict[str, list[str]]:
+    """Map repo name to its open PRs by the gh user; empty if gh is unavailable."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            _GH_PRS,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"ah-repo-status: skipping PRs: {exc}", file=sys.stderr)
+        return {}
+    prs: dict[str, list[str]] = {}
+    for pr in _GH_PRS_ADAPTER.validate_json(result.stdout):
+        prs.setdefault(pr.repository.name, []).append(f"#{pr.number}")
+    return prs
+
+
+def _format(status: RepoStatus, width: int) -> str:
+    parts = []
+    if status.upstream is None:
+        parts.append("no upstream")
+    if status.ahead:
+        parts.append(f"↑{status.ahead}")
+    if status.behind:
+        parts.append(f"↓{status.behind}")
+    if status.modified:
+        parts.append(f"{status.modified} modified")
+    if status.untracked:
+        parts.append(f"{status.untracked} untracked")
+    if status.stashes:
+        parts.append(f"{status.stashes} stash")
+    if status.prs:
+        parts.append("PR " + " ".join(status.prs))
+    detail = ", ".join(parts) or "clean"
+    return f"{status.name:<{width}}  {status.branch:<24}  {detail}"
+
+
+def main() -> int:
+    """Print the status of every repo directly under --root."""
+    parser = argparse.ArgumentParser(prog="ah-repo-status", description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path.home() / "dev")
+    parser.add_argument(
+        "--dirty", action="store_true", help="only repos that are not clean"
+    )
+    parser.add_argument("--no-pr", action="store_true", help="skip the gh call")
+    parser.add_argument("--json", action="store_true", help="JSON lines output")
+    parser.add_argument("--timeout", type=float, default=10.0, help="gh timeout (s)")
+    args = parser.parse_args()
+
+    if not args.root.is_dir():
+        print(f"ah-repo-status: no such directory: {args.root}", file=sys.stderr)
+        return 1
+    repos = sorted(p for p in args.root.iterdir() if (p / ".git").exists())
+    prs = {} if args.no_pr else open_prs(args.timeout)
+    statuses = [read_repo(p, prs.get(p.name, [])) for p in repos]
+    if args.dirty:
+        statuses = [s for s in statuses if not s.clean or s.prs]
+
+    width = max((len(s.name) for s in statuses), default=0)
+    for s in statuses:
+        print(s.model_dump_json() if args.json else _format(s, width))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
