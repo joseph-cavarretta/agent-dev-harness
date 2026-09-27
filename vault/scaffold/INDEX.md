@@ -66,6 +66,15 @@ Working notes in `~/.vault/notes/`. Recent:
 
 ---
 
+## Personal
+
+Optional non-technical folders; see the Personal section of [[schema]].
+
+- [[job-search/tracker]] — Application tracker
+- [[interviews/company-interview-guide]] — One prep guide per company
+
+---
+
 ## Plans
 
 Short index notes in `~/.vault/plans/`, each pointing to a full plan in `~/.claude/plans/`. Browse directly; plans are created per task.
