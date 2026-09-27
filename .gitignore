@@ -1,0 +1,14 @@
+__pycache__/
+
+# vault/scaffold is the empty skeleton people start from. Real vault content lives in
+# ~/.vault (its own private repo), so everything here is ignored except the skeleton
+# files and templates.
+vault/scaffold/**
+!vault/scaffold/**/
+!vault/scaffold/**/.gitkeep
+!vault/scaffold/HOW-TO-USE.md
+!vault/scaffold/INDEX.md
+!vault/scaffold/schema.md
+!vault/scaffold/wiki/log.md
+!vault/scaffold/wiki/schema.md
+!vault/scaffold/_templates/*.md
