@@ -3,7 +3,8 @@
 # requires-python = ">=3.11"
 # dependencies = ["pydantic>=2"]
 # ///
-# summary: Git state of every repo in ~/dev in one line each (branch, ahead/behind, uncommitted, stashes, open PRs). Use instead of git status/log/stash per repo.
+# summary: Git state of every repo in ~/dev in one line each (branch, ahead/behind,
+#   uncommitted, stashes, open PRs). Use instead of git status/log/stash per repo.
 """One line per git repo under a root: branch, dirty files, ahead/behind, stashes, PRs.
 
 Ahead/behind is against the upstream as of the last fetch; this script never fetches.

@@ -12,7 +12,7 @@ Every script in `bin/` must:
 - Print a summary by default, not a dump: counts, top N, one line per item. Take flags such as `--limit` to widen or narrow it.
 - Print one of two shapes: aligned text for reading, or JSON lines under `--json` for piping into another script or `jq`.
 - Exit non-zero on failure, with the reason on stderr.
-- Have a `# summary:` line in its first 20 lines: what it returns and when to use it, one line. The `tools-index` hook injects it into every session, so write it as a trigger ("Use instead of ..."). The contract test checks it exists and stays short.
+- Have a `# summary:` line in its first 20 lines: what it returns and when to use it. Wrap long summaries onto following lines that start with `#   `. The `tools-index` hook injects it into every session, so write it as a trigger ("Use instead of ..."). The contract test checks it exists and stays short.
 
 ## Adding a script
 
