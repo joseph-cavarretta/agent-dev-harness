@@ -22,6 +22,7 @@ these instructions simply no-op.
 1. Read `~/.vault/INDEX.md` — top-level entry point for the whole vault
 2. Pre-load the Core Reference pages listed there for grounding
 3. Open only the specific wiki pages the task touches; skip patterns/runbooks unless the task is operational
+- **Finding things:** `ah-vault-find <words>` returns matching sections, then `ah-vault-find --show 'path#heading'` reads just that section (`--show path` gives the page outline). Read a whole page only to edit it, and grep the vault only if the search comes up empty
 - Fast path: single-repo task → skip INDEX.md, go straight to `wiki/repos/<repo>.md`
 - Operational incident → check `investigations/` before diagnosing
 
