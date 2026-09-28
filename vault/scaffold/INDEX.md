@@ -68,8 +68,8 @@ Working notes in `~/.vault/notes/`. Recent:
 
 ## Personal
 
-Optional non-technical folders, kept out of git. Each has its own index and log; see the
-Personal section of [[schema]].
+Optional non-technical folders, each with its own index. Company-specific pages stay local
+(not in git); see the Personal section of [[schema]].
 
 - [[job-search/index|job-search]] — applications, resumes, tracker
 - [[interviews/index|interviews]] — one prep guide per company

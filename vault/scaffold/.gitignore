@@ -1,4 +1,9 @@
-# Personal folders stay local; back them up separately.
-job-search/
-interviews/
-random/
+# Company-specific job-search pages stay local; back them up separately.
+job-search/applications/
+job-search/tracker.md
+job-search/log.md
+interviews/companies/
+interviews/log.md
+
+# Obsidian per-device state: lists recently opened files.
+.obsidian/workspace*.json
