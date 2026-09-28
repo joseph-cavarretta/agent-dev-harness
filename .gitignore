@@ -6,6 +6,7 @@ __pycache__/
 vault/scaffold/**
 !vault/scaffold/**/
 !vault/scaffold/**/.gitkeep
+!vault/scaffold/.gitignore
 !vault/scaffold/HOW-TO-USE.md
 !vault/scaffold/INDEX.md
 !vault/scaffold/schema.md

@@ -121,9 +121,12 @@ Filename: `<env-or-service>-<short-slug>-investigation.md`
 
 ## Personal (optional)
 
-Non-technical folders that live beside the knowledge base. Their pages use their own
-templates, not the wiki page template, and are listed under **Personal** in INDEX.md. Other
-personal folders are fine too: list them there.
+Non-technical folders that live beside the knowledge base. They are **kept out of git**
+(`.gitignore`), so back them up separately. Each folder has its own `index.md` (its page
+list) and `log.md` (its change log): INDEX.md only links to those indexes, and personal work
+is never logged in `wiki/log.md`. Their pages use their own templates, not the wiki page
+template. Other personal folders are fine too: add them to `.gitignore` and link their index
+from INDEX.md.
 
 ### Job application
 When given a job posting:
@@ -134,6 +137,7 @@ When given a job posting:
 5. Draft the cover letter and outreach message following `job-search/cover-letter-playbook.md`, if it exists
 6. Add a row to `job-search/tracker.md`
 7. Once the process reaches an interview, create the guide (below) and link it from the tracker
+8. List the page in `job-search/index.md` and add an entry to `job-search/log.md`
 
 Resume rules: single column, standard headings (Summary, Experience, Projects, Skills, Education), no tables or graphics, mirror the posting's exact keywords, quantified bullets, 1–2 pages.
 
@@ -141,6 +145,7 @@ Resume rules: single column, standard headings (Summary, Experience, Projects, S
 1. Create `interviews/<company>-interview-guide.md` from `_templates/interview-guide.md`
 2. Keep one guide per company; update it as the process moves through stages rather than creating new pages
 3. Fill in the Post-Interview Notes section after each round
+4. List the page in `interviews/index.md` and add an entry to `interviews/log.md`
 
 ---
 
