@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 from pathlib import Path
@@ -9,19 +10,26 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
+# The hook's filename has a hyphen, so it can't be imported by name.
+_spec = importlib.util.spec_from_file_location(
+    "tools_index", REPO / "claude" / "hooks" / "tools-index.py"
+)
+assert _spec is not None
+assert _spec.loader is not None
+tools_index = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(tools_index)
+
 BIN = REPO / "tools" / "bin"
 SUMMARY_PREFIX = "# summary:"
-# The summary is injected into every session, so it has to stay one short line.
+# The summary is injected into every session, so it has to stay short.
 MAX_SUMMARY = 200
 
 SCRIPTS = sorted(p for p in BIN.iterdir() if not p.name.startswith("."))
 
 
 def _summary(script: Path) -> str | None:
-    for line in script.read_text().splitlines()[:20]:
-        if line.startswith(SUMMARY_PREFIX):
-            return line.removeprefix(SUMMARY_PREFIX).strip()
-    return None
+    """The summary exactly as the tools-index hook will read it."""
+    return tools_index.summary(script)
 
 
 @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)

@@ -42,3 +42,15 @@ def test_earlier_path_entry_wins(tmp_path: Path) -> None:
 
 def test_prints_nothing_without_scripts(tmp_path: Path) -> None:
     assert _run(str(tmp_path)) == ""
+
+
+def test_joins_wrapped_summary_lines(tmp_path: Path) -> None:
+    _script(
+        tmp_path,
+        "ah-w",
+        "#!/bin/sh\n# summary: first half,\n#   second half.\n# not part of it\n",
+    )
+
+    assert _run(str(tmp_path)).splitlines()[1:] == [
+        "- `ah-w`: first half, second half."
+    ]
