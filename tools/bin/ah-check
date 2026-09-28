@@ -1,0 +1,287 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pydantic>=2"]
+# ///
+# summary: Run a repo's ruff, format check, mypy and pytest with its own config; prints
+#   one line per check plus only the failing lines. Use instead of running them
+#   yourself.
+"""Lint, format check, type check and test a repo, reporting only what failed.
+
+Each check runs only when the repo configures it, with the repo's own `.venv`. Repos
+with a lockfile but no `.venv` are skipped rather than synced, and caches are off, so
+the repo is left as it was. Exits 1 if any check fails.
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Literal, TypeAlias
+
+from pydantic import BaseModel, ConfigDict
+
+CHECKS = ("ruff", "format", "mypy", "pytest")
+PRUNE_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"}
+VIOLATION = re.compile(r"^.+?:\d+:\d+: [A-Z]+\d+ ")
+MYPY_ERROR = re.compile(r"^.+?:\d+: error: ")
+PYTEST_SUMMARY = re.compile(r"\d+ (passed|failed|errors?|skipped)|no tests ran")
+
+_Parser: TypeAlias = Callable[[str], tuple[list[str], str]]
+
+
+class Check(BaseModel):
+    """The outcome of one check."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    name: str
+    status: Literal["ok", "fail", "skip"]
+    summary: str
+    details: list[str]
+    seconds: float
+
+
+class CheckError(Exception):
+    """The target can't be checked at all, e.g. it isn't in a git repo."""
+
+
+def repo_root(path: Path) -> Path:
+    """The git root containing `path`."""
+    result = subprocess.run(  # noqa: S603
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise CheckError(f"{path} is not inside a git repo")
+    return Path(result.stdout.strip())
+
+
+def _pyproject(repo: Path) -> str:
+    path = repo / "pyproject.toml"
+    return path.read_text(errors="replace") if path.is_file() else ""
+
+
+def has_ruff(repo: Path) -> bool:
+    """Whether the repo configures ruff at its root."""
+    configs = ("ruff.toml", ".ruff.toml")
+    return any((repo / c).is_file() for c in configs) or "[tool.ruff" in _pyproject(
+        repo
+    )
+
+
+def has_mypy(repo: Path) -> bool:
+    """Whether the repo configures mypy."""
+    configs = ("mypy.ini", ".mypy.ini")
+    return any((repo / c).is_file() for c in configs) or "[tool.mypy" in _pyproject(
+        repo
+    )
+
+
+def has_tests(repo: Path) -> bool:
+    """Pytest config, or any `test_*.py` outside virtualenvs and build output."""
+    if (repo / "pytest.ini").is_file() or "[tool.pytest" in _pyproject(repo):
+        return True
+    for _, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in PRUNE_DIRS and not d.startswith(".")]
+        if any(f.startswith("test_") and f.endswith(".py") for f in files):
+            return True
+    return False
+
+
+def tool_command(repo: Path, tool: str) -> list[str] | str:
+    """How to run `tool` for this repo, or the reason it can't run without syncing."""
+    local = repo / ".venv" / "bin" / tool
+    if local.is_file():
+        return [str(local)]
+    if tool == "ruff" and shutil.which("ruff"):
+        return ["ruff"]
+    if (repo / ".venv").is_dir() or (repo / "uv.lock").is_file():
+        # The project pins its tools; running a different version would mislead.
+        return f"{tool} not installed in .venv (run uv sync)"
+    return ["uvx", tool]
+
+
+def parse_ruff(out: str) -> tuple[list[str], str]:
+    """Violation lines and a count."""
+    lines = [ln for ln in out.splitlines() if VIOLATION.match(ln)]
+    return lines, f"{len(lines)} violation(s)"
+
+
+def parse_format(out: str) -> tuple[list[str], str]:
+    """Files that would be reformatted, from `--output-format concise` lines."""
+    lines = [ln.split(":", 1)[0] for ln in out.splitlines() if ": unformatted:" in ln]
+    return lines, f"{len(lines)} file(s) would be reformatted"
+
+
+def parse_mypy(out: str) -> tuple[list[str], str]:
+    """Error lines and mypy's own summary line."""
+    lines = out.splitlines()
+    errors = [ln for ln in lines if MYPY_ERROR.match(ln)]
+    summary = next((ln for ln in reversed(lines) if ln.startswith("Found ")), "")
+    return errors, summary or f"{len(errors)} error(s)"
+
+
+def parse_pytest(out: str) -> tuple[list[str], str]:
+    """FAILED/ERROR lines, with collection errors given their reason, and the tally."""
+    lines = out.splitlines()
+    reasons: dict[str, str] = {}
+    collecting = None
+    for ln in lines:
+        if m := re.search(r"ERROR collecting (\S+)", ln):
+            collecting = m[1]
+        elif collecting and ln.startswith("E   "):
+            reasons[collecting] = ln[4:].strip()
+            collecting = None
+    details = []
+    for ln in lines:
+        if ln.startswith(("FAILED ", "ERROR ")):
+            path = ln.split()[1]
+            reason = reasons.get(path)
+            details.append(f"{ln} - {reason}" if reason and " - " not in ln else ln)
+    summary = next((ln for ln in reversed(lines) if PYTEST_SUMMARY.search(ln)), "")
+    return details, summary.strip("= ")
+
+
+SPECS: dict[str, tuple[str, list[str], _Parser]] = {
+    "ruff": ("ruff", ["check", "--no-cache", "--output-format", "concise"], parse_ruff),
+    "format": (
+        "ruff",
+        ["format", "--check", "--no-cache", "--output-format", "concise"],
+        parse_format,
+    ),
+    "mypy": ("mypy", ["--cache-dir", "/dev/null", "."], parse_mypy),
+    "pytest": (
+        "pytest",
+        ["-q", "-rfE", "--tb=line", "-p", "no:cacheprovider"],
+        parse_pytest,
+    ),
+}
+APPLIES: dict[str, Callable[[Path], bool]] = {
+    "ruff": has_ruff,
+    "format": has_ruff,
+    "mypy": has_mypy,
+    "pytest": has_tests,
+}
+NOT_CONFIGURED = {
+    "ruff": "no ruff config",
+    "format": "no ruff config",
+    "mypy": "no mypy config",
+    "pytest": "no tests",
+}
+
+
+def run_check(repo: Path, name: str, timeout: float) -> Check:
+    """Run one check if it applies, and reduce its output to what failed."""
+    if not APPLIES[name](repo):
+        return Check(
+            name=name,
+            status="skip",
+            summary=NOT_CONFIGURED[name],
+            details=[],
+            seconds=0.0,
+        )
+    tool, args, parse = SPECS[name]
+    command = tool_command(repo, tool)
+    if isinstance(command, str):
+        return Check(name=name, status="skip", summary=command, details=[], seconds=0.0)
+    # Pass the environment through, only adding the no-bytecode flag.
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    start = time.monotonic()
+    try:
+        result = subprocess.run(  # noqa: S603
+            [*command, *args], cwd=repo, capture_output=True, text=True,
+            timeout=timeout, env=env, check=False,
+        )  # fmt: skip
+    except subprocess.TimeoutExpired:
+        return Check(name=name, status="fail", summary=f"timed out after {timeout:.0f}s",
+                     details=[], seconds=timeout)  # fmt: skip
+    seconds = round(time.monotonic() - start, 1)
+    out = result.stdout + result.stderr
+    details, summary = parse(out)
+    if name == "pytest" and result.returncode == 5:  # noqa: PLR2004 (no tests collected)
+        return Check(
+            name=name,
+            status="skip",
+            summary="no tests collected",
+            details=[],
+            seconds=seconds,
+        )
+    if result.returncode == 0:
+        return Check(name=name, status="ok", summary="" if name != "pytest" else summary,
+                     details=[], seconds=seconds)  # fmt: skip
+    if not details:  # a failure we can't parse: show the tail instead of nothing
+        details = [ln for ln in out.splitlines() if ln.strip()][-8:]
+    return Check(
+        name=name, status="fail", summary=summary, details=details, seconds=seconds
+    )
+
+
+def render(repo: Path, checks: Sequence[Check], limit: int) -> list[str]:
+    """One line per check, with capped failure details under each failure."""
+    ran = [c for c in checks if c.status != "skip"]
+    passed = sum(c.status == "ok" for c in ran)
+    lines = [f"{passed}/{len(ran)} checks passed in {repo}"]
+    for c in checks:
+        lines.append(
+            f"{c.status.upper():<5} {c.name:<7} {c.summary}".rstrip()
+            + (f"  ({c.seconds}s)" if c.status != "skip" else "")
+        )
+        lines += [f"      {d}" for d in c.details[:limit]]
+        if len(c.details) > limit:
+            lines.append(
+                f"      ... {len(c.details) - limit} more (--limit {len(c.details)})"
+            )
+    return lines
+
+
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command-line flags."""
+    parser = argparse.ArgumentParser(prog="ah-check", description=__doc__)
+    parser.add_argument(
+        "path", nargs="?", type=Path, default=Path.cwd(), help="any path in the repo"
+    )
+    parser.add_argument(
+        "--only",
+        default=",".join(CHECKS),
+        help=f"comma-separated subset of {','.join(CHECKS)}",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=15, help="max detail lines per check"
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=600.0, help="seconds per check"
+    )
+    parser.add_argument("--json", action="store_true", help="JSON lines output")
+    args = parser.parse_args(argv)
+    unknown = set(args.only.split(",")) - set(CHECKS)
+    if unknown:
+        parser.error(f"unknown checks: {', '.join(sorted(unknown))}")
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the selected checks; exit 1 if any failed."""
+    args = parse_args(argv)
+    try:
+        repo = repo_root(args.path.expanduser())
+    except CheckError as exc:
+        print(f"ah-check: {exc}", file=sys.stderr)
+        return 2
+    selected = [c for c in CHECKS if c in args.only.split(",")]
+    checks = [run_check(repo, name, args.timeout) for name in selected]
+    if args.json:
+        print("\n".join(c.model_dump_json() for c in checks))
+    else:
+        print("\n".join(render(repo, checks, args.limit)))
+    return 1 if any(c.status == "fail" for c in checks) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
