@@ -1,0 +1,4 @@
+# Lint config for the harness itself; other repos extend the base the same way.
+extend = "python-styleguide/ruff-base.toml"
+# mcp/delegate predates the baseline and hasn't been brought up to it yet.
+extend-exclude = ["mcp"]
