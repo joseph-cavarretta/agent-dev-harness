@@ -2,7 +2,6 @@
   "permissions": {
     "allow": [
       "Read(~/.vault/**)",
-      "Glob(~/.vault/**)",
       "Grep(~/.vault/**)"
     ]
   },
