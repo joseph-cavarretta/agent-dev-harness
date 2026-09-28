@@ -1,0 +1,366 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pydantic>=2"]
+# ///
+# summary: Search ~/.vault by keyword; returns matching sections (path#heading, summary,
+#   snippet), not whole files. --show reads one section, --related lists links.
+#   Use instead of grep/cat on the vault.
+"""Keyword search over vault notes that returns heading sections instead of whole files.
+
+Builds an in-memory SQLite FTS5 index on every run (milliseconds at vault size), so
+there is no index file to go stale. Searches the technical folders by default; --all
+adds personal folders. Read-only.
+"""
+
+import argparse
+import re
+import sqlite3
+import sys
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Literal, TypeAlias
+
+from pydantic import BaseModel, ConfigDict
+
+TECHNICAL = ("wiki", "projects", "notes", "plans", "investigations")
+# Catalogs and logs: they mention every page, so they would crowd every search.
+SKIP_BY_DEFAULT = (
+    "INDEX.md",
+    "schema.md",
+    "wiki/schema.md",
+    "wiki/log.md",
+    "wiki/log-archive.md",
+)
+IGNORED_PARTS = {".git", ".obsidian", "_templates"}
+MIN_SECTION_WORDS = 40
+# bm25() weights per column: path and anchor are unindexed; heading 5, summary 2, body 1.
+SEARCH_SQL = (
+    "SELECT path, anchor, heading, summary, snippet(s, 4, '[', ']', '…', 14) "
+    "FROM s WHERE s MATCH ? ORDER BY bm25(s, 0.0, 0.0, 5.0, 2.0, 1.0) LIMIT ?"
+)
+HEADING = re.compile(r"^(#{1,3}) +(.+?)\s*$")
+LINK = re.compile(r"\[\[([^\]|#]+)")
+
+_Graph: TypeAlias = dict[str, set[str]]
+
+
+class _Model(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+
+class Section(_Model):
+    """One heading section of a page; `heading` is its path, e.g. `Page > Roadmap`."""
+
+    path: str
+    anchor: str
+    heading: str
+    summary: str
+    body: str
+
+
+class Hit(_Model):
+    """A search result."""
+
+    path: str
+    anchor: str
+    heading: str
+    summary: str
+    snippet: str
+
+
+class Relation(_Model):
+    """A page linked to the one asked about."""
+
+    path: str
+    relation: Literal["links to", "linked from", "2 hops"]
+    summary: str
+
+
+class Page(_Model):
+    """A parsed note: its `>` summary line and its lines, for sectioning."""
+
+    path: str
+    summary: str
+    lines: list[str]
+
+
+class VaultError(Exception):
+    """A request the vault can't answer: missing vault, page or heading."""
+
+
+def load_page(vault: Path, file: Path) -> Page:
+    """Read a note and pick out its `>` summary line from the first few lines."""
+    lines = file.read_text(encoding="utf-8", errors="replace").splitlines()
+    summary = next(
+        (ln.lstrip("> ").strip() for ln in lines[:8] if ln.startswith(">")), ""
+    )
+    return Page(path=str(file.relative_to(vault)), summary=summary, lines=lines)
+
+
+def headings(lines: Sequence[str]) -> list[tuple[int, int, str]]:
+    """(line index, level, text) for each level 1-3 heading outside code fences."""
+    found, fenced = [], False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and (m := HEADING.match(line)):
+            found.append((i, len(m[1]), m[2]))
+    return found
+
+
+def sections(page: Page) -> list[Section]:
+    """Split a page at its headings, merging very short sections into the one before."""
+    marks = headings(page.lines)
+    starts = [0] + [i for i, _, _ in marks if i > 0]
+    trail: dict[int, str] = {}
+    out: list[Section] = []
+    for n, start in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(page.lines)
+        level, text = next(
+            ((lv, t) for i, lv, t in marks if i == start), (1, page.path)
+        )
+        trail = {lv: t for lv, t in trail.items() if lv < level} | {level: text}
+        body = "\n".join(page.lines[start:end])
+        if out and len(body.split()) < MIN_SECTION_WORDS:
+            prev = out.pop()
+            out.append(prev.model_copy(update={"body": prev.body + "\n" + body}))
+            continue
+        out.append(Section(
+            path=page.path, anchor=text, heading=" > ".join(trail.values()),
+            summary=page.summary, body=body,
+        ))  # fmt: skip
+    return out
+
+
+def vault_files(vault: Path, include_all: bool) -> list[Path]:
+    """Markdown notes in scope, in a stable order."""
+    files = []
+    for file in sorted(vault.rglob("*.md")):
+        rel = file.relative_to(vault)
+        if IGNORED_PARTS & set(rel.parts):
+            continue
+        if include_all or (
+            rel.parts[0] in TECHNICAL and str(rel) not in SKIP_BY_DEFAULT
+        ):
+            files.append(file)
+    return files
+
+
+def build_index(pages: Iterable[Page]) -> sqlite3.Connection:
+    """In-memory FTS5 table with one row per section."""
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE VIRTUAL TABLE s USING fts5("
+        "path UNINDEXED, anchor UNINDEXED, heading, summary, body, "
+        "tokenize='porter unicode61')"
+    )
+    rows = [
+        (s.path, s.anchor, s.heading, s.summary, s.body)
+        for page in pages
+        for s in sections(page)
+    ]
+    db.executemany("INSERT INTO s VALUES (?, ?, ?, ?, ?)", rows)
+    return db
+
+
+def match_expr(query: str, mode: Literal["all", "any"]) -> str:
+    """Quote each word so punctuation can't break FTS5 syntax."""
+    words = re.findall(r"\w+", query)
+    if not words:
+        raise VaultError(f"no searchable words in {query!r}")
+    return (" AND " if mode == "all" else " OR ").join(f'"{w}"' for w in words)
+
+
+def search(
+    db: sqlite3.Connection, query: str, limit: int
+) -> tuple[list[Hit], int, str]:
+    """Top hits, total match count and the mode used: all words, else any word."""
+    for mode in ("all", "any"):
+        expr = match_expr(query, mode)
+        total = db.execute(
+            "SELECT count(*) FROM s WHERE s MATCH ?", (expr,)
+        ).fetchone()[0]
+        if total:
+            rows = db.execute(SEARCH_SQL, (expr, limit)).fetchall()
+            hits = [
+                Hit(
+                    path=p,
+                    anchor=a,
+                    heading=h,
+                    summary=sm,
+                    snippet=" ".join(sn.split()),
+                )
+                for p, a, h, sm, sn in rows
+            ]
+            return hits, total, mode
+    return [], 0, "any"
+
+
+def resolve(vault: Path, ref: str) -> Path:
+    """Find a note from `wiki/x`, `wiki/x.md`, an absolute path or a unique file name."""
+    candidates = [Path(ref), vault / ref, vault / f"{ref}.md"]
+    for c in candidates:
+        if c.is_file():
+            return c
+    stem = Path(ref).stem
+    named = [f for f in vault_files(vault, True) if f.stem == stem]
+    if len(named) == 1:
+        return named[0]
+    raise VaultError(f"no note matches {ref!r}")
+
+
+def outline(page: Page) -> list[str]:
+    """Headings with the word count of the text under each, to pick what to --show."""
+    marks = headings(page.lines)
+    ends = [i for i, _, _ in marks[1:]] + [len(page.lines)]
+    out = [f"{page.path} — {page.summary}"]
+    for (i, level, text), end in zip(marks, ends, strict=True):
+        words = len(" ".join(page.lines[i + 1 : end]).split())
+        out.append(f"{'  ' * (level - 1)}{text} ({words} words)")
+    return out
+
+
+def show_section(page: Page, anchor: str) -> str:
+    """The section under `anchor`, up to the next heading at the same or higher level."""
+    marks = headings(page.lines)
+    for n, (i, level, text) in enumerate(marks):
+        if text.lower() == anchor.lower():
+            end = next(
+                (j for j, lv, _ in marks[n + 1 :] if lv <= level), len(page.lines)
+            )
+            return "\n".join(page.lines[i:end]).rstrip()
+    names = ", ".join(t for _, _, t in marks)
+    raise VaultError(f"no heading {anchor!r} in {page.path}; headings: {names}")
+
+
+def link_graph(pages: Sequence[Page]) -> _Graph:
+    """Page path → set of page paths it links to, for links that resolve."""
+    by_stem: dict[str, list[str]] = {}
+    known = {p.path for p in pages}
+    for path in known:
+        by_stem.setdefault(Path(path).stem, []).append(path)
+    graph: _Graph = {}
+    for page in pages:
+        targets = set()
+        for raw in LINK.findall("\n".join(page.lines)):
+            ref = raw.strip()
+            if f"{ref}.md" in known:
+                targets.add(f"{ref}.md")
+            elif len(by_stem.get(Path(ref).name, [])) == 1:
+                targets.add(by_stem[Path(ref).name][0])
+        graph[page.path] = targets - {page.path}
+    return graph
+
+
+def related(graph: _Graph, summaries: dict[str, str], path: str) -> list[Relation]:
+    """Direct links both ways, then pages two hops away in either direction."""
+    backlinks = {src for src, dsts in graph.items() if path in dsts}
+    out = graph.get(path, set())
+    direct = out | backlinks
+    two_hops = set()
+    for p in direct:
+        two_hops |= graph.get(p, set()) | {s for s, d in graph.items() if p in d}
+    two_hops -= direct | {path}
+    groups: list[tuple[Literal["links to", "linked from", "2 hops"], set[str]]] = [
+        ("links to", out), ("linked from", backlinks), ("2 hops", two_hops),
+    ]  # fmt: skip
+    return [
+        Relation(path=p, relation=rel, summary=summaries.get(p, ""))
+        for rel, paths in groups
+        for p in sorted(paths)
+    ]
+
+
+def _short(text: str, width: int = 110) -> str:
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def run_search(vault: Path, args: argparse.Namespace) -> list[str]:
+    """Format search results, or JSON lines under --json."""
+    pages = [load_page(vault, f) for f in vault_files(vault, args.all)]
+    hits, total, mode = search(build_index(pages), args.query, args.limit)
+    if args.json:
+        return [h.model_dump_json() for h in hits]
+    if not hits:
+        return [f"no sections match {args.query!r}; try other words or --all"]
+    words = "all of" if mode == "all" else "any of"
+    lines = [f"{len(hits)} of {total} sections match {words}: {args.query}"]
+    seen: set[str] = set()
+    for h in hits:
+        # A page's summary is the same for all its sections: print it once.
+        about = f" — {_short(h.summary)}" if h.summary and h.path not in seen else ""
+        seen.add(h.path)
+        lines += [f"{h.path}#{h.anchor}{about}", f"    {h.snippet}"]
+    if total > len(hits):
+        lines.append(f"{total - len(hits)} more: --limit {total}")
+    lines.append("read one: ah-vault-find --show 'path#heading'")
+    return lines
+
+
+def run_show(vault: Path, ref: str) -> list[str]:
+    """A page outline for `path`, or one section for `path#heading`."""
+    target, _, anchor = ref.partition("#")
+    page = load_page(vault, resolve(vault, target))
+    return [show_section(page, anchor)] if anchor else outline(page)
+
+
+def run_related(vault: Path, ref: str, args_all: bool, as_json: bool) -> list[str]:
+    """Pages linked to or from `ref`, grouped by relation."""
+    target = resolve(vault, ref)
+    path = str(target.relative_to(vault))
+    # Catalogs and logs link to nearly everything: every page would be 2 hops away.
+    files = [
+        f
+        for f in vault_files(vault, args_all)
+        if str(f.relative_to(vault)) not in SKIP_BY_DEFAULT
+    ]
+    pages = [load_page(vault, f) for f in {*files, target}]
+    rels = related(link_graph(pages), {p.path: p.summary for p in pages}, path)
+    if as_json:
+        return [r.model_dump_json() for r in rels]
+    if not rels:
+        return [f"no links to or from {path}"]
+    return [f"{r.relation:<12} {r.path} — {_short(r.summary, 90)}" for r in rels]
+
+
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command-line flags; exactly one of a query, --show or --related."""
+    parser = argparse.ArgumentParser(prog="ah-vault-find", description=__doc__)
+    parser.add_argument("query", nargs="?", help="words to search for")
+    parser.add_argument(
+        "--show", metavar="PATH[#HEADING]", help="outline or one section"
+    )
+    parser.add_argument("--related", metavar="PATH", help="links to and from a note")
+    parser.add_argument("--limit", type=int, default=5, help="max results (default 5)")
+    parser.add_argument("--all", action="store_true", help="include personal folders")
+    parser.add_argument("--json", action="store_true", help="JSON lines output")
+    parser.add_argument("--vault", type=Path, default=Path.home() / ".vault")
+    args = parser.parse_args(argv)
+    if sum(x is not None for x in (args.query, args.show, args.related)) != 1:
+        parser.error("give a query, --show or --related")
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Dispatch to search, show or related."""
+    args = parse_args(argv)
+    vault = args.vault.expanduser()
+    try:
+        if not vault.is_dir():
+            raise VaultError(f"no vault at {vault}")
+        if args.show:
+            lines = run_show(vault, args.show)
+        elif args.related:
+            lines = run_related(vault, args.related, args.all, args.json)
+        else:
+            lines = run_search(vault, args)
+    except VaultError as exc:
+        print(f"ah-vault-find: {exc}", file=sys.stderr)
+        return 1
+    print("\n".join(lines))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
