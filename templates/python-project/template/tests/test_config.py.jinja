@@ -1,0 +1,10 @@
+from {{ package_name }}.config import AppConfig
+from {{ package_name }}.entrypoints.cli import main
+
+
+def test_override_with_model_copy(config: AppConfig) -> None:
+    assert config.model_copy(update={"log_level": "WARNING"}).log_level == "WARNING"
+
+
+def test_cli_runs() -> None:
+    assert main() == 0
