@@ -16,6 +16,7 @@ This vault is Claude's persistent memory for infrastructure, systems, repos, and
 | `notes/` | Working notes: findings, procedures, roadmaps, meeting notes | (none — see §Notes) |
 | `investigations/` | Incident and debugging writeups | `_templates/investigation.md` |
 | `archive/` | Historical reference, superseded docs | (none) |
+| `job-search/`, `interviews/` | Optional personal folders; see §Personal | `_templates/application.md`, `_templates/interview-guide.md` |
 
 ---
 
@@ -37,6 +38,8 @@ The wiki is a structured technical knowledge base maintained by Claude as a bypr
 
 ```markdown
 # <Title>
+
+> <one-line summary; reused as the page's description in INDEX.md>
 
 **Last updated:** YYYY-MM-DD
 **Sources:** <repo paths, files, PRs, or conversations that informed this page>
@@ -113,6 +116,40 @@ Working notes in `~/.vault/notes/`. No rigid template.
 Incident and debugging writeups in `~/.vault/investigations/`. Use `_templates/investigation.md`.
 
 Filename: `<env-or-service>-<short-slug>-investigation.md`
+
+---
+
+## Personal (optional)
+
+Non-technical folders that live beside the knowledge base. Each has its own `index.md` (its
+page list) and `log.md` (its change log): INDEX.md only links to those indexes, and personal
+work is never logged in `wiki/log.md`. Their pages use their own templates, not the wiki page
+template.
+
+**Company-specific pages never go in git.** Anything that names a company you're applying to
+or interviewing with lives in a git-ignored place: `job-search/applications/`,
+`job-search/tracker.md`, `interviews/companies/`, and the personal `log.md` files. Keep the
+rest (master resume, base resumes, stories, general prep guides) free of those names, so it
+can be committed. Back up the ignored pages separately.
+
+### Job application
+When given a job posting:
+1. Screen it against `job-search/criteria.md` non-negotiables; if it fails, say why and stop
+2. Create `job-search/applications/<company>-<role>.md` from `_templates/application.md`, pasting the full posting and filling the fit score
+3. Pick the closest variant in `job-search/resumes/`, then tailor it using only facts from `job-search/master-resume.md`. Never invent experience or metrics
+4. Write the tailored resume to `job-search/applications/<company>-<role>/resume.md`. If `job-search/templates/` has a build script, render the PDF with it and check it is at most 2 pages and its text extracts cleanly
+5. Draft the cover letter and outreach message following `job-search/cover-letter-playbook.md`, if it exists
+6. Add a row to `job-search/tracker.md`
+7. Once the process reaches an interview, create the guide (below) and link it from the tracker
+8. List the page in `job-search/applications/index.md` and add an entry to `job-search/log.md`
+
+Resume rules: single column, standard headings (Summary, Experience, Projects, Skills, Education), no tables or graphics, mirror the posting's exact keywords, quantified bullets, 1–2 pages.
+
+### Interview prep
+1. Create `interviews/companies/<company>-interview-guide.md` from `_templates/interview-guide.md`. Company-specific drills go in `interviews/companies/` too; general prep goes in `interviews/`
+2. Keep one guide per company; update it as the process moves through stages rather than creating new pages
+3. Fill in the Post-Interview Notes section after each round
+4. List the page in `interviews/companies/index.md` and add an entry to `interviews/log.md`
 
 ---
 

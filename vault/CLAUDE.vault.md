@@ -12,7 +12,7 @@ these instructions simply no-op.
 ### Structure
 - **Vault location:** `~/.vault/`
 - **Templates:** `~/.vault/_templates/` — MUST read and use the matching template when creating new vault notes
-- **Folders:** `wiki/` (technical reference: systems, repos, runbooks, decisions, patterns), `notes/` (working notes), `projects/` (multi-file initiatives), `plans/` (index notes pointing to full plans), `investigations/` (incident & debugging writeups), `archive/`
+- **Folders:** `wiki/` (technical reference: systems, repos, runbooks, decisions, patterns), `notes/` (working notes), `projects/` (multi-file initiatives), `plans/` (index notes pointing to full plans), `investigations/` (incident & debugging writeups), `archive/`. Optional personal folders (`job-search/`, `interviews/`) follow the Personal section of `schema.md`
 
 ### Plans — two parts
 1. `~/.vault/plans/<slug>.md` — short vault index note: title, date, link to plan file, project, 2–3 sentence summary. Use `_templates/plan-index.md`.
