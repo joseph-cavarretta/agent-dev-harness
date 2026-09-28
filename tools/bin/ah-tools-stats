@@ -1,0 +1,233 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pydantic>=2"]
+# ///
+# summary: From the audit log, how often each ah-* tool ran vs the raw commands it
+#   replaces, and the most repeated raw commands no tool covers yet (script candidates).
+"""Measure whether agents use the ah-* tools, and find the next ones to write.
+
+Reads the per-session audit logs written by claude/hooks/audit-log.py. Only the first
+line of each logged command is matched, so heredoc bodies don't count as commands.
+Sessions logged before file tools were recorded show no Read/Grep/Glob calls, which
+undercounts raw vault reads there; the report says how many sessions have them.
+"""
+
+import argparse
+import re
+import sys
+from collections import Counter
+from collections.abc import Iterable, Sequence
+from datetime import datetime
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
+
+HEADER = re.compile(r"^(\d{4}-\d\d-\d\dT[\d:]+)(?: exit=\S+)?\s+\[cwd=(.*)\]$")
+VAULT = r"(~|/home/[^/\s]+)/\.vault\b"
+# For each tool: patterns for the raw calls it is meant to replace. Matched against the
+# logged line (`$ command` or `@ Tool target`).
+REPLACES: dict[str, list[str]] = {
+    "ah-vault-find": [
+        rf"^@ (Read|Grep|Glob) .*{VAULT}",
+        # Reads only: `cd ~/.vault && python3 ...` edits are not lookups.
+        rf"^\$ .*\b(grep|rg|cat|head|tail|find|sed -n)\b[^;&|]*{VAULT}",
+        rf"^\$ cd {VAULT}\S* *(&&|;) *(ls|cat|grep|rg|head|tail|find|sed -n)\b",
+    ],
+    "ah-check": [
+        r"^\$ .*\bruff (check|format)\b",
+        r"^\$ .*(?<![\w./-])(mypy|pytest)(?=\s|$)",
+        r"^\$ .*\bmake (test|lint|check|type-check)",
+    ],
+    "ah-repo-status": [
+        # Checking several repos at once; one repo's `git status` is not worth a tool.
+        r"^\$ .*\bfor \w+ in \S*dev/\*\S*;.*\bgit\b",
+        r"^\$ .*\bgit -C \S+ (status|log|stash|branch)\b.*\bgit -C ",
+    ],
+}
+# Plumbing and writes can't become read-only ah-* tools, so they aren't candidates.
+NOT_CANDIDATES = (
+    "echo", "printf", "python3", "cat", "ls", "S=", "T=", "rm ", "mv ", "cp ", "ln ",
+    "chmod", "touch", "mkdir", "sed -i", "git add", "git commit", "git switch",
+    "git push", "git checkout", "git rebase", "git restore", "git worktree",
+    "git branch -d", "gh pr create", "gh pr edit", "gh pr close", "gh pr merge",
+    "make install", "uv sync", "uvx copier",
+)  # fmt: skip
+
+
+class Entry(BaseModel):
+    """One logged tool call."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    session: str
+    time: datetime
+    line: str
+
+
+class ToolStats(BaseModel):
+    """Use of one ah-* tool against the raw calls it replaces."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    tool: str
+    tool_calls: int
+    raw_calls: int
+    adoption: float
+    examples: list[str]
+
+
+class Candidate(BaseModel):
+    """A repeated raw command that no tool covers."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    command: str
+    count: int
+    sessions: int
+
+
+def parse_log(path: Path) -> list[Entry]:
+    """Entries of one session log; each entry's line is its first line only."""
+    entries: list[Entry] = []
+    pending: datetime | None = None
+    for raw in path.read_text(errors="replace").splitlines():
+        if m := HEADER.match(raw):
+            pending = datetime.fromisoformat(m[1])
+        elif pending is not None and raw.startswith(("  $ ", "  @ ")):
+            entries.append(Entry(session=path.stem, time=pending, line=raw[2:]))
+            pending = None
+    return entries
+
+
+def load(audit_dir: Path, since: datetime | None) -> list[Entry]:
+    """All entries in the audit directory, optionally from `since` on."""
+    entries = [e for log in sorted(audit_dir.glob("*.log")) for e in parse_log(log)]
+    return [e for e in entries if since is None or e.time >= since]
+
+
+def uses_tool(line: str, tool: str) -> bool:
+    """Whether a logged shell command runs `tool` anywhere in its chain."""
+    return (
+        line.startswith("$ ")
+        and re.search(rf"(^|[\s;&|/]){re.escape(tool)}\b", line) is not None
+    )
+
+
+def tool_stats(entries: Sequence[Entry], examples: int) -> list[ToolStats]:
+    """Tool calls vs raw calls per tool; adoption is tool / (tool + raw)."""
+    out = []
+    for tool, patterns in REPLACES.items():
+        compiled = [re.compile(p) for p in patterns]
+        used = [e for e in entries if uses_tool(e.line, tool)]
+        raw = [
+            e for e in entries
+            if not uses_tool(e.line, tool) and any(p.search(e.line) for p in compiled)
+        ]  # fmt: skip
+        total = len(used) + len(raw)
+        out.append(ToolStats(
+            tool=tool, tool_calls=len(used), raw_calls=len(raw),
+            adoption=round(len(used) / total, 2) if total else 0.0,
+            # raw[-0:] would be the whole list, so zero needs its own case.
+            examples=[_short(e.line) for e in raw[-examples:]] if examples > 0 else [],
+        ))  # fmt: skip
+    return out
+
+
+def _short(line: str, width: int = 100) -> str:
+    return line if len(line) <= width else line[: width - 1] + "…"
+
+
+def command_key(line: str) -> str | None:
+    """The first words of a shell command, after any leading `cd ... &&`."""
+    if not line.startswith("$ "):
+        return None
+    command = re.sub(r"^cd [^;&]+(&&|;)\s*", "", line[2:].strip())
+    if not command or command.startswith(NOT_CANDIDATES) or command.startswith("ah-"):
+        return None
+    words = command.split()
+    # `gh pr view` and `gh pr create` differ in the third word.
+    return " ".join(words[: 3 if words[0] == "gh" else 2])
+
+
+def candidates(entries: Iterable[Entry], min_count: int, limit: int) -> list[Candidate]:
+    """Raw commands repeated at least `min_count` times that no tool already covers."""
+    covered = [re.compile(p) for patterns in REPLACES.values() for p in patterns]
+    counts: Counter[str] = Counter()
+    sessions: dict[str, set[str]] = {}
+    for e in entries:
+        key = command_key(e.line)
+        if key is None or any(p.search(e.line) for p in covered):
+            continue
+        counts[key] += 1
+        sessions.setdefault(key, set()).add(e.session)
+    return [
+        Candidate(command=k, count=n, sessions=len(sessions[k]))
+        for k, n in counts.most_common()
+        if n >= min_count
+    ][:limit]
+
+
+def render(
+    entries: Sequence[Entry], stats: Sequence[ToolStats], cands: Sequence[Candidate]
+) -> list[str]:
+    """Plain-text report."""
+    sessions = {e.session for e in entries}
+    with_files = {e.session for e in entries if e.line.startswith("@ ")}
+    lines = [
+        f"{len(entries)} calls in {len(sessions)} sessions "
+        f"({len(with_files)} with Read/Grep/Glob logged)",
+        "",
+        f"{'tool':<16}{'tool calls':>11}{'raw calls':>11}{'adoption':>10}",
+    ]
+    for s in stats:
+        lines.append(
+            f"{s.tool:<16}{s.tool_calls:>11}{s.raw_calls:>11}{s.adoption:>10.0%}"
+        )
+    for s in stats:
+        if s.examples:
+            lines.append(f"\nrecent raw calls {s.tool} could have made:")
+            lines += [f"  {x}" for x in s.examples]
+    if cands:
+        lines.append("\nrepeated raw commands with no tool (script candidates):")
+        lines += [
+            f"  {c.count:>4}x in {c.sessions} session(s)  {c.command}" for c in cands
+        ]
+    return lines
+
+
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command-line flags."""
+    parser = argparse.ArgumentParser(prog="ah-tools-stats", description=__doc__)
+    parser.add_argument(
+        "--audit-dir", type=Path, default=Path.home() / ".claude" / "audit"
+    )
+    parser.add_argument(
+        "--since", type=datetime.fromisoformat, help="YYYY-MM-DD[THH:MM]"
+    )
+    parser.add_argument(
+        "--examples", type=int, default=3, help="raw calls shown per tool"
+    )
+    parser.add_argument(
+        "--min-count", type=int, default=3, help="repeats to be a candidate"
+    )
+    parser.add_argument("--limit", type=int, default=10, help="max candidates")
+    parser.add_argument("--json", action="store_true", help="JSON lines output")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Print the report."""
+    args = parse_args(argv)
+    if not args.audit_dir.is_dir():
+        print(f"ah-tools-stats: no audit log at {args.audit_dir}", file=sys.stderr)
+        return 1
+    entries = load(args.audit_dir, args.since)
+    stats = tool_stats(entries, args.examples)
+    cands = candidates(entries, args.min_count, args.limit)
+    if args.json:
+        print("\n".join(m.model_dump_json() for m in [*stats, *cands]))
+    else:
+        print("\n".join(render(entries, stats, cands)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
