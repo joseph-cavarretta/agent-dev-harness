@@ -3,7 +3,7 @@ VAULT_DIR := $(HOME)/.vault
 BIN_DIR := $(HOME)/.local/bin
 SETTINGS := $(CLAUDE_DIR)/settings.json
 
-.PHONY: install install-vault vault-init install-tools test-tools mcp uninstall
+.PHONY: install install-vault vault-init install-tools test-tools test-hooks mcp uninstall
 
 # Symlink the base instructions and hooks, then merge the managed settings keys into
 # ~/.claude/settings.json. A merge rather than a symlink: Claude Code writes /model and theme
@@ -45,6 +45,9 @@ install-tools:
 
 test-tools:
 	@uv run --no-project --with pytest pytest -q "$(CURDIR)/tools/tests"
+
+test-hooks:
+	@uv run --no-project --with pytest pytest -q "$(CURDIR)/claude/tests"
 
 mcp:
 	@cd "$(CURDIR)/mcp/delegate" && uv sync
