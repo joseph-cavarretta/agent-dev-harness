@@ -183,6 +183,16 @@
             "command": "python3 ~/.claude/hooks/audit-log.py"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/lint-autofix.py",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "SessionStart": [
