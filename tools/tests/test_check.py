@@ -90,6 +90,8 @@ def test_skips_what_the_repo_does_not_configure(tmp_path: Path) -> None:
     assert {n: c["status"] for n, c in checks.items()} == dict.fromkeys(
         ("ruff", "format", "mypy", "pytest"), "skip"
     )
+    # A verifier must not pass when nothing was checked.
+    assert _run(tmp_path).returncode == 1
 
 
 def test_never_creates_an_environment(repo: Path) -> None:

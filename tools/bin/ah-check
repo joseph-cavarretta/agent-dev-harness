@@ -10,7 +10,7 @@
 
 Each check runs only when the repo configures it, with the repo's own `.venv`. Repos
 with a lockfile but no `.venv` are skipped rather than synced, and caches are off, so
-the repo is left as it was. Exits 1 if any check fails.
+the repo is left as it was. Exits 1 if any check fails or none apply.
 """
 
 import argparse
@@ -280,6 +280,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\n".join(c.model_dump_json() for c in checks))
     else:
         print("\n".join(render(repo, checks, args.limit)))
+    # Nothing ran means nothing was verified: fail, so a verifier can't pass vacuously.
+    if all(c.status == "skip" for c in checks):
+        print("ah-check: no checks apply to this repo", file=sys.stderr)
+        return 1
     return 1 if any(c.status == "fail" for c in checks) else 0
 
 
