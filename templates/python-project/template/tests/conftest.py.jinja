@@ -1,0 +1,8 @@
+import pytest
+
+from {{ package_name }}.config import AppConfig
+
+
+@pytest.fixture
+def config() -> AppConfig:
+    return AppConfig(log_level="DEBUG")

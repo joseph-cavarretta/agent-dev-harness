@@ -1,0 +1,2 @@
+class {{ package_name.split('_') | map('capitalize') | join('') }}Error(Exception):
+    """Base for every error raised by this package."""

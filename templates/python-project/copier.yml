@@ -1,0 +1,27 @@
+# New Python project to the harness styleguide (python-styleguide/python-styleguide.md §8).
+# Usage: make -C ~/dev/agent-dev-harness new-project DEST=~/dev/<name>
+_subdirectory: template
+
+project_name:
+  type: str
+  help: Project name, kebab-case (e.g. order-service)
+
+package_name:
+  type: str
+  help: Python package name
+  default: "{{ project_name | replace('-', '_') }}"
+
+description:
+  type: str
+  help: One-line description
+  default: ""
+
+python_version:
+  type: str
+  help: Minimum Python version
+  default: "3.12"
+
+ruff_base:
+  type: str
+  help: Shared ruff baseline to extend
+  default: "~/dev/agent-dev-harness/python-styleguide/ruff-base.toml"

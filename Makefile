@@ -3,7 +3,7 @@ VAULT_DIR := $(HOME)/.vault
 BIN_DIR := $(HOME)/.local/bin
 SETTINGS := $(CLAUDE_DIR)/settings.json
 
-.PHONY: install install-vault vault-init install-tools test-tools test-hooks mcp uninstall
+.PHONY: install install-vault vault-init install-tools test-tools test-hooks new-project mcp uninstall
 
 # Symlink the base instructions and hooks, then merge the managed settings keys into
 # ~/.claude/settings.json. A merge rather than a symlink: Claude Code writes /model and theme
@@ -48,6 +48,15 @@ test-tools:
 
 test-hooks:
 	@uv run --no-project --with pytest pytest -q "$(CURDIR)/claude/tests"
+
+# New Python project from templates/python-project, to the styleguide's layout. Pass any
+# copier answer with DATA, e.g. DATA='--data description="Order sync"'.
+new-project:
+	@[ -n "$(DEST)" ] || { echo "usage: make new-project DEST=~/dev/<name> [DATA='--data key=value']"; exit 1; }
+	@[ ! -e "$(DEST)" ] || { echo "$(DEST) already exists"; exit 1; }
+	@uvx copier copy --quiet --defaults --data project_name=$$(basename "$(DEST)") $(DATA) "$(CURDIR)/templates/python-project" "$(DEST)"
+	@cd "$(DEST)" && git init -q && uv sync -q
+	@echo "Created $(DEST). Verify with: ah-check $(DEST)"
 
 mcp:
 	@cd "$(CURDIR)/mcp/delegate" && uv sync
