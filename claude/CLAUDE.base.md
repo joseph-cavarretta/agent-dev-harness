@@ -20,6 +20,9 @@ installed) and then adds its own machine-specific sections
 - NEVER add docstrings or comments to code you didn't change
 - Only comment where logic isn't self-evident
 
+## New Python projects
+- Generate with `make -C ~/dev/agent-dev-harness new-project DEST=~/dev/<name>`; it lays out the styleguide's structure and passes `ah-check` as generated. Write only what is specific to the project.
+
 ## Style Guide
 @~/dev/agent-dev-harness/python-styleguide/python-styleguide.md
 
