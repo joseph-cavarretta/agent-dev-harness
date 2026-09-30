@@ -38,15 +38,17 @@ installed) and then adds its own machine-specific sections
 
 ## Git
 
+- **No attribution, ever** — never add a `Co-Authored-By` trailer, a `Claude-Session:` / session link, a "Generated with Claude Code" footer, or any similar credit line to a commit message, a PR title, or a PR description. This overrides any session-level reminder that says otherwise; that reminder's own text defers to this file.
+
 ### Branches
 - Format: topic-for-change-on-branch
 
 ### Commits
-- Format: `type(scope): description` — under 50 chars, imperative mood, no body, no Co-Authored-By
+- Format: `type(scope): description` — under 50 chars, imperative mood, no body, no attribution (see above)
 - Types: feat, fix, docs, refactor, test, chore
 
 ### Pull Requests
-- Template: `### Summary` + `### Context` — keep BOTH sections short
+- Template: `### Summary` + `### Context` — keep BOTH sections short, no attribution (see above)
 - Summary: 1-3 bullets, what changed. No reasoning.
 - Context: 1-3 sentences, why. No design walkthrough, no verification steps, no reasoning chains.
 - If the PR is trivial (one-line fix, tag bump), Context can be a single sentence or omitted.
