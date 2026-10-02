@@ -9,7 +9,7 @@ def test_default_settings() -> None:
     assert settings.default_timeout_seconds == 300
     assert settings.timeout_grace_seconds == 30
     assert settings.dangerously_skip_permissions is True
-    assert isinstance(settings.agy_bin_path, Path)
+    assert isinstance(settings.worker_bin_path, Path)
     assert isinstance(settings.vault_path, Path)
 
 

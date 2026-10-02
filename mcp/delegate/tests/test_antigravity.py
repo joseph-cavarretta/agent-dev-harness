@@ -1,12 +1,10 @@
 import json
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
+from delegate_mcp.antigravity import AntigravityRunner, _parse_json_output
 from delegate_mcp.config import Settings
-from delegate_mcp.models import ExecutionResult, Usage
-from delegate_mcp.runner import AgyRunner, _parse_agy_json, log_delegation
 
-AGY_JSON = {
+WORKER_JSON = {
     "conversation_id": "abc-123",
     "status": "SUCCESS",
     "response": "Draft written.\n",
@@ -27,10 +25,10 @@ def test_runner_constructs_correct_cli_command() -> None:
         default_effort="high",
         dangerously_skip_permissions=True,
     )
-    runner = AgyRunner(settings)
+    runner = AntigravityRunner(settings)
 
     with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(AGY_JSON), stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(WORKER_JSON), stderr="")
         result = runner.run_prompt(
             prompt="Test prompt",
             working_directory="/tmp/project",
@@ -38,7 +36,7 @@ def test_runner_constructs_correct_cli_command() -> None:
         )
 
     assert result.command == [
-        str(settings.agy_bin_path),
+        str(settings.worker_bin_path),
         "--print",
         "Test prompt",
         "--model",
@@ -56,16 +54,16 @@ def test_runner_constructs_correct_cli_command() -> None:
 
 
 def test_runner_parses_json_payload() -> None:
-    runner = AgyRunner(Settings())
+    runner = AntigravityRunner(Settings())
 
     with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(AGY_JSON), stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(WORKER_JSON), stderr="")
         result = runner.run_prompt("Draft something")
 
     assert result.success is True
     assert result.stdout == "Draft written.\n"
     assert result.conversation_id == "abc-123"
-    # measured locally, not taken from agy's unreliable duration_seconds
+    # measured locally, not taken from the CLI's unreliable duration_seconds
     assert result.duration_seconds is not None and result.duration_seconds != 12.5
     assert result.usage is not None
     assert result.usage.input_tokens == 48891
@@ -73,10 +71,10 @@ def test_runner_parses_json_payload() -> None:
 
 
 def test_runner_resumes_conversation() -> None:
-    runner = AgyRunner(Settings())
+    runner = AntigravityRunner(Settings())
 
     with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(AGY_JSON), stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(WORKER_JSON), stderr="")
         result = runner.run_prompt("Fix the header", conversation_id="abc-123")
 
     assert "--conversation" in result.command
@@ -84,8 +82,8 @@ def test_runner_resumes_conversation() -> None:
 
 
 def test_runner_treats_failed_status_as_failure() -> None:
-    runner = AgyRunner(Settings())
-    payload = {**AGY_JSON, "status": "FAILED", "error": "tool loop exceeded"}
+    runner = AntigravityRunner(Settings())
+    payload = {**WORKER_JSON, "status": "FAILED", "error": "tool loop exceeded"}
 
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
@@ -96,7 +94,7 @@ def test_runner_treats_failed_status_as_failure() -> None:
 
 
 def test_runner_falls_back_when_output_is_not_json() -> None:
-    runner = AgyRunner(Settings())
+    runner = AntigravityRunner(Settings())
 
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="plain text reply", stderr="")
@@ -109,7 +107,7 @@ def test_runner_falls_back_when_output_is_not_json() -> None:
 
 def test_subprocess_timeout_exceeds_print_timeout() -> None:
     settings = Settings(timeout_grace_seconds=30)
-    runner = AgyRunner(settings)
+    runner = AntigravityRunner(settings)
 
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
@@ -121,7 +119,7 @@ def test_subprocess_timeout_exceeds_print_timeout() -> None:
 
 
 def test_runner_handles_timeout() -> None:
-    runner = AgyRunner(Settings())
+    runner = AntigravityRunner(Settings())
 
     with patch(
         "subprocess.run",
@@ -136,7 +134,7 @@ def test_runner_handles_timeout() -> None:
 
 
 def test_runner_handles_missing_binary() -> None:
-    runner = AgyRunner(Settings())
+    runner = AntigravityRunner(Settings())
 
     with patch("subprocess.run", side_effect=OSError("No such file")):
         result = runner.run_prompt("Anything")
@@ -145,23 +143,23 @@ def test_runner_handles_missing_binary() -> None:
     assert "Could not run" in result.stderr
 
 
-def test_parse_agy_json_skips_leading_log_lines() -> None:
-    stdout = "warming up\n" + json.dumps(AGY_JSON)
-    parsed = _parse_agy_json(stdout)
+def test_parse_json_output_skips_leading_log_lines() -> None:
+    stdout = "warming up\n" + json.dumps(WORKER_JSON)
+    parsed = _parse_json_output(stdout)
     assert parsed is not None
     assert parsed["conversation_id"] == "abc-123"
 
 
-def test_parse_agy_json_returns_none_for_empty() -> None:
-    assert _parse_agy_json("   ") is None
+def test_parse_json_output_returns_none_for_empty() -> None:
+    assert _parse_json_output("   ") is None
 
 
 def test_output_schema_and_overrides_reach_the_cli() -> None:
-    runner = AgyRunner(Settings())
+    runner = AntigravityRunner(Settings())
     schema = {"type": "object", "properties": {"n": {"type": "integer"}}}
 
     with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(AGY_JSON), stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(WORKER_JSON), stderr="")
         result = runner.run_prompt(
             "Classify", model="gemini-3.1-pro", effort="low", output_schema=schema
         )
@@ -173,8 +171,8 @@ def test_output_schema_and_overrides_reach_the_cli() -> None:
 
 
 def test_structured_output_is_parsed_separately_from_prose() -> None:
-    runner = AgyRunner(Settings())
-    payload = {**AGY_JSON, "response": "chatty prose with toolAction noise",
+    runner = AntigravityRunner(Settings())
+    payload = {**WORKER_JSON, "response": "chatty prose with toolAction noise",
                "structured_output": {"severity": "high"}}
 
     with patch("subprocess.run") as mock_run:
@@ -185,8 +183,8 @@ def test_structured_output_is_parsed_separately_from_prose() -> None:
     assert "toolAction" in result.stdout
 
 
-def test_invalid_effort_fails_before_spawning_agy() -> None:
-    runner = AgyRunner(Settings())
+def test_invalid_effort_fails_before_spawning_worker() -> None:
+    runner = AntigravityRunner(Settings())
 
     with patch("subprocess.run") as mock_run:
         result = runner.run_prompt("anything", effort="ludicrous")
@@ -194,25 +192,3 @@ def test_invalid_effort_fails_before_spawning_agy() -> None:
     mock_run.assert_not_called()
     assert result.success is False
     assert "effort must be one of" in result.stderr
-
-
-def test_log_delegation_appends_a_row(tmp_path) -> None:
-    log = tmp_path / "nested" / "log.jsonl"
-    res = ExecutionResult(
-        success=True, stdout="", stderr="", exit_code=0, command=["agy"],
-        target_file="/tmp/x.py", conversation_id="c1", duration_seconds=3.14,
-        usage=Usage(input_tokens=10, output_tokens=2, cache_read_tokens=5),
-    )
-    log_delegation(log, "delegate_code_draft", res, verified=True, refine_of="c0")
-
-    row = json.loads(log.read_text(encoding="utf-8").strip())
-    assert row["tool"] == "delegate_code_draft"
-    assert row["verified"] is True
-    assert row["refine_of"] == "c0"
-    assert row["duration_s"] == 3.1
-    assert row["cached_tokens"] == 5
-
-
-def test_log_delegation_never_raises_on_a_bad_path() -> None:
-    res = ExecutionResult(success=True, stdout="", stderr="", exit_code=0, command=[])
-    log_delegation(Path("/proc/nope/cannot-write.jsonl"), "delegate_task", res)

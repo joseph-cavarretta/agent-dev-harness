@@ -55,9 +55,9 @@ class DummyRunner:
             return ExecutionResult(
                 success=False,
                 stdout="",
-                stderr="agy exploded",
+                stderr="worker exploded",
                 exit_code=1,
-                command=["agy"],
+                command=["worker"],
                 target_file=target_file,
                 conversation_id="conv-42",
             )
@@ -66,7 +66,7 @@ class DummyRunner:
             stdout="Draft complete.",
             stderr="",
             exit_code=0,
-            command=["agy"],
+            command=["worker"],
             target_file=target_file,
             conversation_id="conv-42",
             duration_seconds=9.0,
@@ -153,14 +153,14 @@ def test_delegate_task_passes_through_workspace_and_overrides(tmp_path: Path) ->
         working_directory=str(tmp_path),
         additional_dirs=[str(tmp_path / "extra")],
         conversation_id="warm-1",
-        model="gemini-3.1-pro",
+        model="stronger-model",
         effort="low",
     )
 
     assert runner.last_prompt == "Summarize the deploy logs"
     assert runner.last_additional_dirs == [str(tmp_path / "extra")]
     assert runner.last_conversation_id == "warm-1"
-    assert runner.last_model == "gemini-3.1-pro"
+    assert runner.last_model == "stronger-model"
     assert runner.last_effort == "low"
     assert "1,000 in / 200 out (800 cached)" in result
 
@@ -198,12 +198,12 @@ def test_code_draft_runs_the_verify_loop_and_checks_independently(tmp_path: Path
     assert verifier.last_command == f"cd {tmp_path} && uv run pytest -q"
     assert verifier.last_directory == str(tmp_path)
     assert "PASSED" in result
-    assert "Verification (run by this server, not agy)" in result
+    assert "Verification (run by this server, not the worker)" in result
     assert "read the diff for design, not for bugs" in result
 
 
-def test_verification_overrides_agy_claiming_success(tmp_path: Path) -> None:
-    """agy has claimed success on work that did not pass. The check decides."""
+def test_verification_overrides_worker_claiming_success(tmp_path: Path) -> None:
+    """The worker has claimed success on work that did not pass. The check decides."""
     server = _server(tmp_path, DummyRunner(should_succeed=True), DummyVerifier(passed=False))
 
     result = _tool(server, "delegate_code_draft").fn(
@@ -213,11 +213,11 @@ def test_verification_overrides_agy_claiming_success(tmp_path: Path) -> None:
     )
 
     assert "FAILED" in result
-    assert "agy claimed success. The check disagrees" in result
+    assert "The worker claimed success. The check disagrees" in result
 
 
-def test_verification_rescues_agy_reporting_a_false_failure(tmp_path: Path) -> None:
-    """Observed for real: agy returned status ERROR on a run whose check passed."""
+def test_verification_rescues_worker_reporting_a_false_failure(tmp_path: Path) -> None:
+    """Observed for real: the worker returned status ERROR on a run whose check passed."""
     server = _server(tmp_path, DummyRunner(should_succeed=False), DummyVerifier(passed=True))
 
     result = _tool(server, "delegate_code_draft").fn(
@@ -227,7 +227,7 @@ def test_verification_rescues_agy_reporting_a_false_failure(tmp_path: Path) -> N
     )
 
     assert "PASSED" in result
-    assert "agy's status is unreliable" in result
+    assert "Its status is unreliable" in result
 
 
 def test_code_draft_warns_when_nothing_proves_it_works(tmp_path: Path) -> None:
@@ -288,13 +288,13 @@ def test_vault_document_infers_template_and_includes_schema(tmp_path: Path) -> N
     assert "Template: investigation.md" in result
 
 
-def test_vault_document_reports_when_agy_did_not_write_the_file(tmp_path: Path) -> None:
-    """Observed for real: agy said the page was created when it was not."""
+def test_vault_document_reports_when_worker_did_not_write_the_file(tmp_path: Path) -> None:
+    """Observed for real: the worker said the page was created when it was not."""
     server = _server(tmp_path)
     result = _tool(server, "delegate_vault_document").fn(
         relative_path="wiki/repos/ghost.md", topic="Ghost", source_context="notes"
     )
-    assert "agy did not create the file" in result
+    assert "The worker did not create the file" in result
 
 
 def test_vault_document_cleans_up_directory_it_created_on_failure(tmp_path: Path) -> None:
@@ -315,7 +315,7 @@ def test_failure_response_omits_the_review_checklist(tmp_path: Path) -> None:
     result = _tool(server, "delegate_task").fn(instruction="Do a thing")
 
     assert "FAILED" in result
-    assert "agy exploded" in result
+    assert "worker exploded" in result
     assert "Review before calling this done" not in result
     assert "refine_delegation rather than starting over" in result
 
@@ -383,7 +383,7 @@ def test_delegation_stats_handles_no_log(tmp_path: Path) -> None:
 
 
 def test_verify_command_always_carries_an_explicit_cd(tmp_path: Path) -> None:
-    """agy's shell starts in its own scratch dir; without a cd the check runs in the wrong place."""
+    """The worker's shell may start in its own scratch dir; without a cd the check runs in the wrong place."""
     verifier = DummyVerifier(passed=True)
     runner = DummyRunner()
     server = _server(tmp_path, runner, verifier)
@@ -400,7 +400,7 @@ def test_verify_command_always_carries_an_explicit_cd(tmp_path: Path) -> None:
 
 
 def test_server_retries_with_the_real_failure_until_it_passes(tmp_path: Path) -> None:
-    """The loop is driven here, not by agy: fail, feed the observed output back, pass."""
+    """The loop is driven here, not by the worker: fail, feed the observed output back, pass."""
     verifier = DummyVerifier(sequence=[False, False, True])
     runner = DummyRunner()
     server = _server(tmp_path, runner, verifier)

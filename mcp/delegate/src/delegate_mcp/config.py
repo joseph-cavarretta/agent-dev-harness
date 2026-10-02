@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    agy_bin_path: Path = Field(default_factory=lambda: Path.home() / ".local" / "bin" / "agy")
+    worker_bin_path: Path = Field(default_factory=lambda: Path.home() / ".local" / "bin" / "agy")
     default_model: str = "gemini-3.7-flash"
     default_effort: str = "high"
     default_timeout_seconds: int = 300

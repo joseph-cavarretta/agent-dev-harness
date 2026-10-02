@@ -13,7 +13,7 @@ def _tail(text: str) -> str:
 class ShellVerifier:
     """Runs the verify command directly so a pass is observed, not reported.
 
-    agy will claim success it does not have, so its word is never the evidence.
+    The worker will claim success it does not have, so its word is never the evidence.
     """
 
     def run(self, command: str, working_directory: str, timeout_seconds: int) -> Verification:

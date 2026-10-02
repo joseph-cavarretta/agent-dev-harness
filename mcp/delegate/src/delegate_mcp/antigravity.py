@@ -1,7 +1,6 @@
 import json
 import subprocess
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from delegate_mcp.config import Settings
@@ -10,7 +9,7 @@ from delegate_mcp.models import ExecutionResult, Usage
 VALID_EFFORTS = ("low", "medium", "high")
 
 
-def _parse_agy_json(stdout: str) -> Optional[Dict[str, Any]]:
+def _parse_json_output(stdout: str) -> Optional[Dict[str, Any]]:
     """Pull the result object out of `agy --output-format json` output.
 
     agy normally prints one JSON object, but tolerate leading log lines by scanning
@@ -38,7 +37,9 @@ def _parse_agy_json(stdout: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-class AgyRunner:
+class AntigravityRunner:
+    """Runs the Antigravity CLI (`agy`) as the worker."""
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
@@ -72,7 +73,7 @@ class AgyRunner:
             )
 
         cmd: List[str] = [
-            str(self.settings.agy_bin_path),
+            str(self.settings.worker_bin_path),
             "--print",
             prompt,
             "--model",
@@ -124,7 +125,7 @@ class AgyRunner:
             return ExecutionResult(
                 success=False,
                 stdout="",
-                stderr=f"Could not run {self.settings.agy_bin_path}: {e}",
+                stderr=f"Could not run {self.settings.worker_bin_path}: {e}",
                 exit_code=-1,
                 command=cmd,
                 target_file=target_file,
@@ -132,7 +133,7 @@ class AgyRunner:
 
         # agy's own duration_seconds is not wall clock (a 21s run reported 1.7), so measure here.
         elapsed = time.monotonic() - started
-        payload = _parse_agy_json(res.stdout)
+        payload = _parse_json_output(res.stdout)
 
         if payload is None:
             return ExecutionResult(
@@ -160,37 +161,3 @@ class AgyRunner:
             usage=Usage(**usage_data) if isinstance(usage_data, dict) else None,
             structured_output=structured if isinstance(structured, dict) else None,
         )
-
-
-def log_delegation(
-    log_path: Path,
-    tool: str,
-    result: ExecutionResult,
-    verified: Optional[bool] = None,
-    refine_of: Optional[str] = None,
-    verify_rounds: Optional[int] = None,
-) -> None:
-    """Append one line per delegation so the accept rate can be measured later.
-
-    Never let bookkeeping break a delegation.
-    """
-    entry = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "tool": tool,
-        "target": result.target_file,
-        "worker_reported_success": result.success,
-        "verified": verified,
-        "verify_rounds": verify_rounds,
-        "refine_of": refine_of,
-        "conversation_id": result.conversation_id,
-        "duration_s": round(result.duration_seconds, 1) if result.duration_seconds else None,
-        "input_tokens": result.usage.input_tokens if result.usage else None,
-        "output_tokens": result.usage.output_tokens if result.usage else None,
-        "cached_tokens": result.usage.cache_read_tokens if result.usage else None,
-    }
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
-    except OSError:
-        pass

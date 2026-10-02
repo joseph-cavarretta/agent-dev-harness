@@ -76,7 +76,6 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Read(~/dev/**)",
       "Grep(~/dev/**)",
-      "Bash(agy *)",
       "mcp__delegate__*",
       "Bash(ah-*)"
     ],

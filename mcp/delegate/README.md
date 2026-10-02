@@ -1,12 +1,12 @@
 # delegate-mcp
 
-MCP server that lets Claude Code delegate bulk work to a worker agent CLI, then proves the result instead of trusting it. The first (and only) worker backend is the Antigravity CLI (`agy`); runners sit behind `WorkerRunnerProtocol`, so another CLI can be added without touching the tools.
+MCP server that lets Claude Code delegate bulk work to a worker agent CLI, then proves the result instead of trusting it. Runners sit behind `WorkerRunnerProtocol`, so the tools don't know which CLI does the work. The only backend today is `AntigravityRunner` (`antigravity.py`); another CLI is one new runner.
 
-Claude orchestrates and reviews; `agy` does the volume. The rules deciding *when* to reach for it live in `~/.claude/CLAUDE.base.md`.
+Claude orchestrates and reviews; the worker does the volume. The rules deciding *when* to reach for it live in `~/.claude/CLAUDE.base.md`.
 
 ## The premise
 
-`agy` is cheap to run and unreliable about its own output — it has claimed success on work that failed and reported errors on work that passed. Its self-report is never the evidence.
+The worker is cheap to run and unreliable about its own output — it has claimed success on work that failed and reported errors on work that passed. Its self-report is never the evidence.
 
 Everything here follows from that:
 
@@ -24,22 +24,22 @@ Everything here follows from that:
 | `refine_delegation` | Corrections to an earlier call, via its `conversation_id` | `verify_command`, when supplied |
 | `delegation_stats` | Whether delegating is actually paying off | — |
 
-Pass file *paths*, not file contents: `agy` has its own read tools and will read them itself.
+Pass file *paths*, not file contents: the worker has its own read tools and will read them itself.
 
 ## The verify loop
 
-`delegate_code_draft` and `refine_delegation` accept a `verify_command`. Once `agy` returns:
+`delegate_code_draft` and `refine_delegation` accept a `verify_command`. Once the worker returns:
 
 1. The server runs the command itself, from `verify_directory`.
-2. On failure, the output is fed back to `agy` over the same `conversation_id`.
+2. On failure, the output is fed back to the worker over the same `conversation_id`.
 3. That repeats up to `max_verify_rounds` (default 4).
 4. The response reports the observed exit code, and the review checklist it returns differs depending on whether the check actually passed.
 
-The loop lives here rather than in the prompt because `agy`'s shell starts in a scratch directory and will report a passing run it never made. Only this side sees the real exit code, so only this side can decide whether to iterate.
+The loop lives here rather than in the prompt because the worker's shell may start in a scratch directory and will report a passing run it never made. Only this side sees the real exit code, so only this side can decide whether to iterate.
 
 ## Setup
 
-Requires the `agy` binary (default `~/.local/bin/agy`) and [uv](https://docs.astral.sh/uv/).
+Requires the worker CLI binary (`worker_bin_path`, default `~/.local/bin/agy`) and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone git@github.com:joseph-cavarretta/agent-dev-harness.git ~/dev/agent-dev-harness
@@ -60,7 +60,7 @@ Register the server in `~/.claude.json`:
 }
 ```
 
-The path must be absolute — `~` is not expanded here. Allow `Bash(agy *)` and
+The path must be absolute — `~` is not expanded here. Allow the worker binary and
 `mcp__delegate__*` in your Claude Code permissions (the harness `claude/settings.json` already does).
 
 ## Configuration
@@ -70,7 +70,7 @@ environment variable, e.g. `DELEGATE_MCP_DEFAULT_EFFORT=low`.
 
 | Setting | Default |
 |---|---|
-| `agy_bin_path` | `~/.local/bin/agy` |
+| `worker_bin_path` | `~/.local/bin/agy` |
 | `default_model` | `gemini-3.7-flash` |
 | `default_effort` | `high` |
 | `default_timeout_seconds` | `300` |
@@ -83,21 +83,21 @@ environment variable, e.g. `DELEGATE_MCP_DEFAULT_EFFORT=low`.
 | `dangerously_skip_permissions` | `true` |
 | `log_path` | `~/.claude/delegations.jsonl` |
 
-`timeout_grace_seconds` is deliberate: the subprocess gets a longer leash than `agy`'s own
-`--print-timeout` so `agy` times out first and its error message survives.
+`timeout_grace_seconds` is deliberate: the subprocess gets a longer leash than the worker's own
+timeout so the worker times out first and its error message survives.
 
-`dangerously_skip_permissions` defaults on, so `agy` runs auto-approved and can write anywhere under
+`dangerously_skip_permissions` defaults on, so the worker runs auto-approved and can write anywhere under
 `~/dev` and `~/.vault`. Scope `working_directory` to the narrowest path that works, and keep secrets
 and IaC out of delegations entirely.
 
 ## Logging
 
-Every delegation appends one JSONL record to `log_path`: timestamp, tool, target file, `agy`'s
+Every delegation appends one JSONL record to `log_path`: timestamp, tool, target file, the worker's
 claimed success, the verified result, verify rounds, conversation id, duration, and token counts.
 Bookkeeping failures are swallowed — they never break a delegation.
 
 `delegation_stats` reads that log back and reports the correction rate and, most usefully, how often
-`agy`'s self-report disagreed with the observed check.
+the worker's self-report disagreed with the observed check.
 
 ## Development
 
@@ -105,5 +105,5 @@ Bookkeeping failures are swallowed — they never break a delegation.
 uv run pytest
 ```
 
-`AgyRunner` and `ShellVerifier` are injected into `create_server()` behind Protocols, so every tool
-is testable without invoking `agy` or running a real shell command.
+The runner and `ShellVerifier` are injected into `create_server()` behind Protocols, so every tool
+is testable without invoking a worker CLI or running a real shell command.
