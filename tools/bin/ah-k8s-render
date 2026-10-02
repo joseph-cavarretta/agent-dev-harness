@@ -1,0 +1,548 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pydantic>=2", "pyyaml>=6"]
+# ///
+# summary: Render Argo CD Applications (Helm repo, OCI, git path) and raw manifests,
+#   then validate them with a strict server-side dry run. Use before merging GitOps
+#   changes.
+"""Render Argo CD Applications to their final manifests and dry-run them on the cluster.
+
+Each Application is checked twice: the Application object, then what its source
+renders to. Validation is `kubectl apply --dry-run=server --validate=strict`, so
+unknown fields on CRDs are rejected and nothing is persisted. Same-repo git paths are
+read from the working tree, so the checked-out branch is what gets validated. Missing
+namespaces fall back to `default`; custom resources whose CRD isn't installed yet are
+skipped. Image pulls, runtime health, string-typed fields such as URLs, and
+multi-source Applications are not checked.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Literal, TypeAlias
+
+import yaml
+from pydantic import BaseModel, ConfigDict
+
+SourceType: TypeAlias = Literal[
+    "application", "helm-repo", "helm-oci", "helm-git", "git-raw", "raw"
+]
+Status: TypeAlias = Literal["ok", "fail", "skip"]
+
+YAML_SUFFIXES = {".yaml", ".yml"}
+CRD_MISSING = re.compile(r"no matches for kind|ensure CRDs are installed first")
+DRY_RUN_MARK = "(server dry run)"
+STRICT_CAUSE = "strict decoding error:"
+PATCH_KIND = re.compile(r'\\"kind\\":\\"(\w+)\\"')
+MAX_DETAIL = 300
+
+
+class RenderResult(BaseModel):
+    """The outcome of validating one Application object or one rendered source."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    file: str
+    name: str
+    source_type: SourceType
+    status: Status
+    summary: str
+    details: list[str]
+    seconds: float
+
+
+class Outcome(BaseModel):
+    """Status, summary and detail lines, before they're attached to a source."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    status: Status
+    summary: str
+    details: list[str]
+
+
+class Tools(BaseModel):
+    """Absolute paths to the binaries this script shells out to."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    helm: str
+    kubectl: str
+    git: str
+
+
+class Cluster(BaseModel):
+    """What Argo CD would know about the cluster when rendering."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    kube_version: str
+    api_versions: list[str]
+    namespaces: frozenset[str]
+
+
+class Context(BaseModel):
+    """Everything a render or validation needs, built once in `main`."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    tools: Tools
+    cluster: Cluster
+    timeout: float
+
+
+class Target(BaseModel):
+    """Where a source renders to: Helm release name, namespace and values."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    release: str
+    namespace: str
+    values: dict[str, object]
+
+
+class RenderError(Exception):
+    """Nothing can be validated at all: a binary is missing or the cluster is down."""
+
+
+class SourceError(Exception):
+    """One source can't be rendered; it becomes a failed result, not a crash."""
+
+    def __init__(self, summary: str, details: Sequence[str] = ()) -> None:
+        """Keep the summary and detail lines for the result row."""
+        super().__init__(summary)
+        self.summary = summary
+        self.details = list(details)
+
+
+class UnsupportedSourceError(SourceError):
+    """A source shape this script doesn't render; reported as a skip."""
+
+
+def _get(node: object, *keys: str) -> object:
+    """Walk nested mappings, returning None as soon as a key is missing."""
+    for key in keys:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
+def _str(node: object, *keys: str) -> str:
+    """A nested string value, or "" when it's missing or not a string."""
+    value = _get(node, *keys)
+    return value if isinstance(value, str) else ""
+
+
+def _tail(text: str, lines: int = 8) -> list[str]:
+    """The last non-blank lines of command output."""
+    return [ln for ln in text.splitlines() if ln.strip()][-lines:]
+
+
+def run(
+    argv: Sequence[str],
+    timeout: float,
+    stdin: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a command, turning a timeout into a SourceError."""
+    try:
+        return subprocess.run(  # noqa: S603
+            list(argv), input=stdin, capture_output=True, text=True,
+            timeout=timeout, env=dict(env) if env else None, check=False,
+        )  # fmt: skip
+    except subprocess.TimeoutExpired as err:
+        raise SourceError(
+            f"{Path(argv[0]).name} timed out after {timeout:.0f}s"
+        ) from err
+
+
+def find_tools() -> Tools:
+    """Resolve helm, kubectl and git to absolute paths, skipping shell aliases."""
+    found = {name: shutil.which(name) for name in ("helm", "kubectl", "git")}
+    missing = [name for name, path in found.items() if path is None]
+    if missing:
+        raise RenderError(f"not on PATH: {', '.join(missing)}")
+    return Tools(**{name: str(path) for name, path in found.items()})
+
+
+def cluster_facts(kubectl: str, timeout: float) -> Cluster:
+    """Server version, API versions and namespaces, as Argo CD would see them."""
+    try:
+        version = run([kubectl, "version", "-o", "json"], timeout)
+        apis = run([kubectl, "api-versions"], timeout)
+        namespaces = run([kubectl, "get", "namespaces", "-o", "name"], timeout)
+    except SourceError as err:
+        raise RenderError(f"cluster unreachable: {err.summary}") from err
+    server = _str(json.loads(version.stdout or "{}"), "serverVersion", "gitVersion")
+    if not server or apis.returncode != 0 or namespaces.returncode != 0:
+        reason = (_tail(version.stderr + apis.stderr, 1) or ["no server version"])[0]
+        raise RenderError(f"cluster unreachable: {reason}")
+    return Cluster(
+        kube_version=server,
+        api_versions=apis.stdout.split(),
+        namespaces=frozenset(
+            ln.removeprefix("namespace/") for ln in namespaces.stdout.split()
+        ),
+    )
+
+
+def yaml_files(paths: Sequence[Path]) -> list[Path]:
+    """Every YAML file under the given paths, skipping dot-directories."""
+    files: list[Path] = []
+    for path in paths:
+        if not path.exists():
+            raise RenderError(f"{path} does not exist")
+        if path.is_file():
+            files.append(path)
+            continue
+        files += sorted(
+            p
+            for p in path.rglob("*")
+            if p.suffix in YAML_SUFFIXES
+            and p.is_file()
+            and not any(part.startswith(".") for part in p.relative_to(path).parts)
+        )
+    return files
+
+
+def normalize_repo(url: str) -> str:
+    """A git URL in comparable form: no scheme or user, `host/owner/repo`, no `.git`."""
+    url = re.sub(r"^[a-z][a-z0-9+.-]*://", "", url.strip().lower())
+    url = re.sub(r"^[^@/]+@([^:/]+):", r"\1/", url)
+    url = re.sub(r"^[^@/]+@", "", url)
+    return url.rstrip("/").removesuffix(".git")
+
+
+def local_repo(git: str, file: Path, timeout: float) -> tuple[Path, str] | None:
+    """Root and normalized origin of the repo holding `file`, or None if it has none."""
+    top = run([git, "-C", str(file.parent), "rev-parse", "--show-toplevel"], timeout)
+    if top.returncode != 0:
+        return None
+    root = Path(top.stdout.strip())
+    origin = run([git, "-C", str(root), "remote", "get-url", "origin"], timeout)
+    if origin.returncode != 0:
+        return None
+    return root, normalize_repo(origin.stdout)
+
+
+def helm_template(ctx: Context, target: Target, chart_args: Sequence[str]) -> str:
+    """Render a chart the way Argo CD would, with the cluster's version and APIs.
+
+    Helm's cache and repo list point at a temp dir, so the user's Helm state is neither
+    read (a stale repo entry would fail the render) nor written. Registry auth is kept.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        values_file = Path(tmp) / "values.yaml"
+        values_file.write_text(yaml.safe_dump(target.values))
+        argv = [
+            ctx.tools.helm, "template", target.release, *chart_args,
+            "--namespace", target.namespace, "--include-crds",
+            "--kube-version", ctx.cluster.kube_version, "-f", str(values_file),
+        ]  # fmt: skip
+        for api in ctx.cluster.api_versions:
+            argv += ["--api-versions", api]
+        env = {
+            **os.environ,
+            "HELM_CACHE_HOME": str(Path(tmp) / "cache"),
+            "HELM_REPOSITORY_CONFIG": str(Path(tmp) / "repositories.yaml"),
+        }
+        result = run(argv, ctx.timeout, env=env)
+    if result.returncode != 0:
+        raise SourceError("helm template failed", _tail(result.stderr))
+    return result.stdout
+
+
+def _version_args(revision: str) -> list[str]:
+    """`--version <rev>` unless the revision is empty or HEAD."""
+    return ["--version", revision] if revision and revision != "HEAD" else []
+
+
+def render_directory(
+    ctx: Context, directory: Path, target: Target
+) -> tuple[SourceType, str]:
+    """A chart directory rendered with Helm, or a plain directory's manifests joined.
+
+    Plain directories are read non-recursively, matching Argo CD's default.
+    """
+    if not directory.is_dir():
+        raise SourceError(f"path not found: {directory.name}")
+    if (directory / "Chart.yaml").is_file():
+        return "helm-git", helm_template(ctx, target, [str(directory)])
+    files = sorted(p for p in directory.iterdir() if p.suffix in YAML_SUFFIXES)
+    return "git-raw", "\n---\n".join(p.read_text() for p in files)
+
+
+def clone(ctx: Context, url: str, revision: str, dest: Path) -> None:
+    """Shallow-clone `url` at a branch or tag into `dest`."""
+    argv = [ctx.tools.git, "clone", "--quiet", "--depth", "1"]
+    if revision and revision != "HEAD":
+        argv += ["--branch", revision]
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    result = run([*argv, url, str(dest)], ctx.timeout, env=env)
+    if result.returncode != 0:
+        raise SourceError(
+            f"git clone failed at {revision or 'HEAD'}", _tail(result.stderr)
+        )
+
+
+def render_git_path(
+    ctx: Context, app_file: Path, source: dict[str, object], target: Target
+) -> tuple[SourceType, str]:
+    """A git `path` source: the local working tree if it's this repo, else a clone."""
+    url, path = _str(source, "repoURL"), _str(source, "path")
+    local = local_repo(ctx.tools.git, app_file, ctx.timeout)
+    if local and local[1] == normalize_repo(url):
+        return render_directory(ctx, local[0] / path, target)
+    with tempfile.TemporaryDirectory() as tmp:
+        clone(ctx, url, _str(source, "targetRevision"), Path(tmp) / "repo")
+        return render_directory(ctx, Path(tmp) / "repo" / path, target)
+
+
+def source_label(app: object) -> SourceType:
+    """The source type as far as it's known before rendering; git paths read as raw."""
+    repo, chart = (
+        _str(app, "spec", "source", "repoURL"),
+        _str(app, "spec", "source", "chart"),
+    )
+    if chart:
+        is_oci = repo and not repo.startswith(("http://", "https://"))
+        return "helm-oci" if is_oci else "helm-repo"
+    return "git-raw" if _str(app, "spec", "source", "path") else "raw"
+
+
+def render_application(
+    ctx: Context, app_file: Path, app: dict[str, object]
+) -> tuple[SourceType, str, str]:
+    """Render an Application's single source; returns type, manifests and namespace."""
+    source = _get(app, "spec", "source")
+    if not isinstance(source, dict):
+        raise UnsupportedSourceError("no single spec.source (multi-source unsupported)")
+    helm = _get(source, "helm")
+    for key in ("values", "valueFiles"):
+        if isinstance(helm, dict) and key in helm:
+            raise UnsupportedSourceError(f"helm.{key} unsupported; use valuesObject")
+    values = _get(helm, "valuesObject")
+    target = Target(
+        release=_str(helm, "releaseName") or _str(app, "metadata", "name"),
+        namespace=_str(app, "spec", "destination", "namespace") or "default",
+        values=values if isinstance(values, dict) else {},
+    )
+    repo, chart = _str(source, "repoURL"), _str(source, "chart")
+    if not repo:
+        raise SourceError("spec.source.repoURL is missing")
+    version = _version_args(_str(source, "targetRevision"))
+    if chart and repo.startswith(("http://", "https://")):
+        manifests = helm_template(ctx, target, [chart, "--repo", repo, *version])
+        return "helm-repo", manifests, target.namespace
+    if chart:
+        oci = repo if repo.startswith("oci://") else f"oci://{repo}"
+        manifests = helm_template(ctx, target, [f"{oci}/{chart}", *version])
+        return "helm-oci", manifests, target.namespace
+    if _str(source, "path"):
+        kind, manifests = render_git_path(ctx, app_file, source, target)
+        return kind, manifests, target.namespace
+    raise UnsupportedSourceError("source has neither chart nor path")
+
+
+def group_by_namespace(
+    docs: Sequence[object], default: str, existing: frozenset[str]
+) -> tuple[dict[str, list[object]], set[str]]:
+    """Bucket docs by the namespace they'd be applied to, as Argo CD does.
+
+    Docs without a namespace go to `default` (the Application's destination). A server
+    dry run can't create namespaces, so ones that don't exist yet become the `default`
+    namespace; schema validation doesn't depend on which namespace is used.
+    """
+    groups: dict[str, list[object]] = {}
+    moved: set[str] = set()
+    for doc in docs:
+        namespace = _str(doc, "metadata", "namespace") or default
+        if namespace not in existing:
+            moved.add(namespace)
+            meta = _get(doc, "metadata")
+            if isinstance(meta, dict) and "namespace" in meta:
+                meta["namespace"] = "default"
+            namespace = "default"
+        groups.setdefault(namespace, []).append(doc)
+    return groups, moved
+
+
+def clean_error(line: str) -> str:
+    """One kubectl error line cut down to its cause.
+
+    Errors against objects that already exist embed the whole patch, often kilobytes of
+    escaped JSON, with the real cause at the very end; keep the cause and the kind.
+    """
+    if STRICT_CAUSE in line and len(line) > MAX_DETAIL:
+        kind = PATCH_KIND.search(line)
+        cause = line[line.index(STRICT_CAUSE) :]
+        return f"{kind[1]}: {cause}" if kind else cause
+    if len(line) > MAX_DETAIL:
+        return "..." + line[-MAX_DETAIL:]
+    return line
+
+
+def validate(ctx: Context, manifests: str, namespace: str) -> Outcome:
+    """Strict server-side dry run of a manifest stream, one call per namespace."""
+    try:
+        docs = [d for d in yaml.safe_load_all(manifests) if d is not None]
+    except yaml.YAMLError as err:
+        return Outcome(status="fail", summary="rendered output isn't valid YAML",
+                       details=[str(err)])  # fmt: skip
+    groups, moved = group_by_namespace(docs, namespace, ctx.cluster.namespaces)
+    notes = [
+        f"namespace {ns} not in cluster yet; validated in default"
+        for ns in sorted(moved)
+    ]
+    valid, errors = 0, []
+    for group_ns, group in groups.items():
+        argv = [ctx.tools.kubectl, "apply", "--dry-run=server", "--validate=strict",
+                "-n", group_ns, "-f", "-"]  # fmt: skip
+        result = run(argv, ctx.timeout, stdin=yaml.safe_dump_all(group))
+        valid += result.stdout.count(DRY_RUN_MARK)
+        if result.returncode != 0:
+            errors += [
+                clean_error(ln) for ln in result.stderr.splitlines() if ln.strip()
+            ]
+    if not errors:
+        return Outcome(status="ok", summary=f"{valid} resource(s) valid", details=notes)
+    if errors and all(CRD_MISSING.search(ln) for ln in errors):
+        summary = f"{valid} valid; custom resources skipped, CRD not installed yet"
+        return Outcome(status="skip", summary=summary, details=notes + errors)
+    return Outcome(
+        status="fail", summary=f"{len(errors)} error line(s)", details=notes + errors
+    )
+
+
+def check_application(
+    ctx: Context, path: Path, app: dict[str, object]
+) -> list[RenderResult]:
+    """Validate the Application object, then render and validate its source."""
+    name = _str(app, "metadata", "name") or path.name
+    start = time.monotonic()
+    wrapper = validate(
+        ctx, yaml.safe_dump(app), _str(app, "metadata", "namespace") or "argocd"
+    )
+    results = [_result(path, name, "application", wrapper, start)]
+    start = time.monotonic()
+    try:
+        kind, manifests, namespace = render_application(ctx, path, app)
+    except UnsupportedSourceError as err:
+        skip = Outcome(status="skip", summary=err.summary, details=err.details)
+        return [*results, _result(path, name, source_label(app), skip, start)]
+    except SourceError as err:
+        fail = Outcome(status="fail", summary=err.summary, details=err.details)
+        return [*results, _result(path, name, source_label(app), fail, start)]
+    rendered = validate(ctx, manifests, namespace)
+    return [*results, _result(path, name, kind, rendered, start)]
+
+
+def check_file(ctx: Context, path: Path) -> list[RenderResult]:
+    """Validate every document in one YAML file."""
+    start = time.monotonic()
+    try:
+        docs = [d for d in yaml.safe_load_all(path.read_text()) if d is not None]
+    except yaml.YAMLError as err:
+        bad = Outcome(
+            status="fail", summary="invalid YAML", details=str(err).splitlines()
+        )
+        return [_result(path, path.name, "raw", bad, start)]
+    results: list[RenderResult] = []
+    for doc in docs:
+        start = time.monotonic()
+        kind, name = _str(doc, "kind"), _str(doc, "metadata", "name") or path.name
+        if not isinstance(doc, dict) or not kind:
+            skip = Outcome(status="skip", summary="no kind; not a manifest", details=[])
+            results.append(_result(path, name, "raw", skip, start))
+        elif kind == "Application" and _str(doc, "apiVersion").startswith(
+            "argoproj.io/"
+        ):
+            results += check_application(ctx, path, doc)
+        else:
+            namespace = _str(doc, "metadata", "namespace") or "default"
+            outcome = validate(ctx, yaml.safe_dump(doc), namespace)
+            results.append(_result(path, name, "raw", outcome, start))
+    return results
+
+
+def _result(
+    path: Path, name: str, source_type: SourceType, outcome: Outcome, start: float
+) -> RenderResult:
+    """Attach an outcome to the source it belongs to, with elapsed time."""
+    return RenderResult(
+        file=str(path),
+        name=name,
+        source_type=source_type,
+        seconds=round(time.monotonic() - start, 1),
+        **outcome.model_dump(),
+    )
+
+
+def render(results: Sequence[RenderResult], limit: int) -> list[str]:
+    """One line per result, with capped detail lines under anything not ok."""
+    checked = [r for r in results if r.status != "skip"]
+    passed = sum(r.status == "ok" for r in checked)
+    skipped = len(results) - len(checked)
+    lines = [f"{passed}/{len(checked)} validated OK, {skipped} skipped"]
+    for r in results:
+        lines.append(
+            f"{r.status.upper():<5} {r.source_type:<11} {r.name} [{Path(r.file).name}]"
+            f"  {r.summary}  ({r.seconds}s)"
+        )
+        lines += [f"      {d}" for d in r.details[:limit]]
+        if len(r.details) > limit:
+            lines.append(
+                f"      ... {len(r.details) - limit} more (--limit {len(r.details)})"
+            )
+    return lines
+
+
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Command-line flags."""
+    parser = argparse.ArgumentParser(prog="ah-k8s-render", description=__doc__)
+    parser.add_argument(
+        "paths", nargs="*", type=Path, default=[Path.cwd()],
+        help="YAML files or directories to walk (default: current directory)",
+    )  # fmt: skip
+    parser.add_argument(
+        "--limit", type=int, default=15, help="max detail lines per result"
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=300.0, help="seconds per helm/git/kubectl call"
+    )
+    parser.add_argument("--json", action="store_true", help="JSON lines output")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Render and validate everything under the given paths; exit 1 on any failure."""
+    args = parse_args(argv)
+    try:
+        files = yaml_files([p.expanduser() for p in args.paths])
+        tools = find_tools()
+        ctx = Context(
+            tools=tools,
+            cluster=cluster_facts(tools.kubectl, args.timeout),
+            timeout=args.timeout,
+        )
+    except RenderError as exc:
+        print(f"ah-k8s-render: {exc}", file=sys.stderr)
+        return 2
+    results = [r for f in files for r in check_file(ctx, f)]
+    if args.json:
+        print("\n".join(r.model_dump_json() for r in results))
+    else:
+        print("\n".join(render(results, args.limit)))
+    # Nothing validated means nothing was verified: fail rather than pass vacuously.
+    if all(r.status == "skip" for r in results):
+        print("ah-k8s-render: nothing was validated", file=sys.stderr)
+        return 1
+    return 1 if any(r.status == "fail" for r in results) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
