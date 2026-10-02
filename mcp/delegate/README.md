@@ -1,6 +1,6 @@
 # delegate-mcp
 
-MCP server that lets Claude Code delegate bulk work to a worker agent CLI, then proves the result instead of trusting it. Runners sit behind `WorkerRunnerProtocol`, so the tools don't know which CLI does the work. The only backend today is `AntigravityRunner` (`antigravity.py`); another CLI is one new runner.
+MCP server that lets Claude Code delegate bulk work to a worker agent CLI, then proves the result instead of trusting it. Runners sit behind `WorkerRunnerProtocol`, so the tools don't know which CLI does the work. Supporting another CLI means writing one new runner and passing it to `create_server()`.
 
 Claude orchestrates and reviews; the worker does the volume. The rules deciding *when* to reach for it live in `~/.claude/CLAUDE.base.md`.
 
@@ -39,7 +39,7 @@ The loop lives here rather than in the prompt because the worker's shell may sta
 
 ## Setup
 
-Requires the worker CLI binary (`worker_bin_path`, default `~/.local/bin/agy`) and [uv](https://docs.astral.sh/uv/).
+Requires the worker CLI binary (set `worker_bin_path`) and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone git@github.com:joseph-cavarretta/agent-dev-harness.git ~/dev/agent-dev-harness
@@ -70,8 +70,8 @@ environment variable, e.g. `DELEGATE_MCP_DEFAULT_EFFORT=low`.
 
 | Setting | Default |
 |---|---|
-| `worker_bin_path` | `~/.local/bin/agy` |
-| `default_model` | `gemini-3.7-flash` |
+| `worker_bin_path` | the worker CLI under `~/.local/bin` |
+| `default_model` | the worker's fast default model |
 | `default_effort` | `high` |
 | `default_timeout_seconds` | `300` |
 | `timeout_grace_seconds` | `30` |
