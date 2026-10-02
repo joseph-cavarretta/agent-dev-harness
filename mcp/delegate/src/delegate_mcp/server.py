@@ -7,7 +7,8 @@ from delegate_mcp import prompts
 from delegate_mcp.config import Settings
 from delegate_mcp.models import ExecutionResult, Verification
 from delegate_mcp.protocols import WorkerRunnerProtocol, CommandVerifierProtocol
-from delegate_mcp.runner import AgyRunner, log_delegation
+from delegate_mcp.antigravity import AntigravityRunner
+from delegate_mcp.delegation_log import log_delegation
 from delegate_mcp.verify import ShellVerifier
 
 TEMPLATE_BY_FOLDER = {
@@ -22,8 +23,8 @@ Effort = Literal["low", "medium", "high"]
 
 MODEL_FIELD = Field(
     description=(
-        "agy model id. Omit for the default (gemini-3.7-flash). Use a Pro model for genuinely "
-        "hard reasoning; an unknown id is a hard error listing valid ones."
+        "Worker model id. Omit for the configured default. Use a stronger model only for "
+        "genuinely hard reasoning; an unknown id is a hard error listing valid ones."
     )
 )
 EFFORT_FIELD = Field(
@@ -54,8 +55,8 @@ def _format_response(
     notes: Optional[List[str]] = None,
     verification: Optional[Verification] = None,
 ) -> str:
-    # When a verify command ran, the observed result decides, not agy's self-report:
-    # agy has been seen reporting ERROR on a run that passed and SUCCESS on one that failed.
+    # When a verify command ran, the observed result decides, not the worker's self-report:
+    # the worker has been seen reporting ERROR on a run that passed and SUCCESS on one that failed.
     done = verification.passed if verification is not None else res.success
     state = "PASSED" if done else "FAILED"
     if verification is None:
@@ -72,17 +73,17 @@ def _format_response(
 
     if verification is not None:
         lines.append("")
-        lines.append(f"--- Verification (run by this server, not agy) ---")
+        lines.append("--- Verification (run by this server, not the worker) ---")
         lines.append(f"$ {verification.command}")
         lines.append(f"exit {verification.exit_code} — {'passed' if verification.passed else 'FAILED'}")
         lines.append(verification.output)
         if verification.passed and not res.success:
             lines.append(
-                "(agy reported a failure but the check passes. agy's status is unreliable; "
+                "(The worker reported a failure but the check passes. Its status is unreliable; "
                 "the check is the evidence.)"
             )
         elif not verification.passed and res.success:
-            lines.append("(agy claimed success. The check disagrees. Trust the check.)")
+            lines.append("(The worker claimed success. The check disagrees. Trust the check.)")
 
     lines.append("")
 
@@ -90,7 +91,7 @@ def _format_response(
         if verification is None:
             lines.extend(["--- Error ---", res.stderr or "(no error output)"])
         if res.stdout:
-            lines.extend(["", "--- agy output ---", res.stdout])
+            lines.extend(["", "--- Worker output ---", res.stdout])
         lines.extend(
             [
                 "",
@@ -118,7 +119,7 @@ def _format_response(
                 "",
                 "To correct the draft, send the fixes back with "
                 f"refine_delegation(conversation_id='{res.conversation_id}', ...).",
-                "agy still holds this context, so a correction costs far less than rewriting"
+                "The worker still holds this context, so a correction costs far less than rewriting"
                 " the file yourself.",
             ]
         )
@@ -136,7 +137,7 @@ def create_server(
     verifier: Optional[CommandVerifierProtocol] = None,
 ) -> MCPServer:
     cfg = settings or Settings()
-    exec_runner = runner or AgyRunner(cfg)
+    exec_runner = runner or AntigravityRunner(cfg)
     exec_verifier = verifier or ShellVerifier()
 
     server = MCPServer("delegate")
@@ -147,7 +148,7 @@ def create_server(
             str,
             Field(
                 description=(
-                    "Self-contained instruction for agy. It has file read/write and terminal "
+                    "Self-contained instruction for the worker. It has file read/write and terminal "
                     "tools and runs in working_directory, so name the paths it should read "
                     "instead of pasting their contents."
                 )
@@ -155,14 +156,14 @@ def create_server(
         ],
         working_directory: Annotated[
             str,
-            Field(description="Absolute path agy runs in. Defaults to ~/dev (all repos)."),
+            Field(description="Absolute path the worker runs in. Defaults to ~/dev (all repos)."),
         ] = "",
         output_schema: Annotated[
             Optional[Dict[str, Any]],
             Field(
                 description=(
                     "JSON Schema for the answer. Supply this whenever you will consume the "
-                    "result rather than read prose: agy is forced to conform and the validated "
+                    "result rather than read prose: the worker is forced to conform and the validated "
                     "object comes back separately from its chatter. Strongly preferred for "
                     "findings, extractions, and summaries."
                 )
@@ -170,11 +171,11 @@ def create_server(
         ] = None,
         timeout_seconds: Annotated[
             int,
-            Field(description="Wall-clock budget for agy. Raise it for multi-file work.", ge=30),
+            Field(description="Wall-clock budget for the worker. Raise it for multi-file work.", ge=30),
         ] = 300,
         additional_dirs: Annotated[
             Optional[List[str]],
-            Field(description="Extra absolute paths to add to agy's workspace."),
+            Field(description="Extra absolute paths to add to the worker's workspace."),
         ] = None,
         conversation_id: Annotated[
             str,
@@ -189,9 +190,9 @@ def create_server(
         model: Annotated[Optional[str], MODEL_FIELD] = None,
         effort: Annotated[Optional[Effort], EFFORT_FIELD] = None,
     ) -> str:
-        """Delegate bulk reading, searching, or summarizing to agy.
+        """Delegate bulk reading, searching, or summarizing to the worker.
 
-        This is the tool with the best economics: agy reads a lot and returns a little.
+        This is the tool with the best economics: the worker reads a lot and returns a little.
         Pass output_schema whenever you will act on the result programmatically.
         Do not use it for work smaller than the review it triggers.
         """
@@ -212,7 +213,7 @@ def create_server(
             [
                 "The structured output is schema-valid, but the facts in it are not verified —"
                 " spot-check anything load-bearing against the source.",
-                "Inspect any file agy created or changed.",
+                "Inspect any file the worker created or changed.",
             ]
             if res.structured_output is not None
             else [
@@ -228,7 +229,7 @@ def create_server(
     @server.tool()
     def delegate_code_draft(
         target_file: Annotated[
-            str, Field(description="Absolute path of the file agy should write.")
+            str, Field(description="Absolute path of the file the worker should write.")
         ],
         task_description: Annotated[
             str,
@@ -239,8 +240,8 @@ def create_server(
             Field(
                 description=(
                     "Shell command that proves the work is correct, e.g. 'uv run pytest "
-                    "tests/test_worker.py -q'. agy iterates against it until it passes, then this "
-                    "server re-runs it independently. Supply it whenever one exists — it is what "
+                    "tests/test_worker.py -q'. The worker iterates against it until it passes, "
+                    "then this server re-runs it independently. Supply it whenever one exists — it is what "
                     "makes delegating cheaper than writing the code yourself."
                 )
             ),
@@ -258,7 +259,7 @@ def create_server(
             Optional[List[str]],
             Field(
                 description=(
-                    "Absolute paths agy should read for context. Paths only — agy reads them "
+                    "Absolute paths the worker should read for context. Paths only — it reads them "
                     "itself; do not paste file contents into task_description."
                 )
             ),
@@ -275,9 +276,9 @@ def create_server(
         model: Annotated[Optional[str], MODEL_FIELD] = None,
         effort: Annotated[Optional[Effort], EFFORT_FIELD] = None,
     ) -> str:
-        """Delegate drafting code or tests to agy, ideally against a command that proves it works.
+        """Delegate drafting code or tests to the worker, ideally against a command that proves it works.
 
-        With verify_command the economics change: agy loops until the check passes and you
+        With verify_command the economics change: the worker loops until the check passes and you
         review a green artifact instead of auditing prose. Without one, only delegate whole
         files — the review costs more than writing short code yourself.
         """
@@ -338,8 +339,8 @@ def create_server(
         verification: Optional[Verification] = None
         rounds = 0
         if verify_command:
-            # The retry loop lives here, not in agy's head: agy's shell starts in a scratch
-            # directory and it will report a passing run it never made. Only this side sees
+            # The retry loop lives here, not in the worker's head: its shell may start in a
+            # scratch directory and it will report a passing run it never made. Only this side sees
             # the real result, so only this side can decide whether to iterate.
             def check() -> Verification:
                 return exec_verifier.run(
@@ -420,8 +421,8 @@ def create_server(
             str,
             Field(
                 description=(
-                    "The factual basis: findings, decisions, config values, file paths. agy can "
-                    "read files itself, so reference paths rather than pasting long excerpts."
+                    "The factual basis: findings, decisions, config values, file paths. The worker "
+                    "can read files itself, so reference paths rather than pasting long excerpts."
                 )
             ),
         ],
@@ -437,7 +438,7 @@ def create_server(
         model: Annotated[Optional[str], MODEL_FIELD] = None,
         effort: Annotated[Optional[Effort], EFFORT_FIELD] = None,
     ) -> str:
-        """Delegate drafting a vault page to agy, following the vault schema and templates.
+        """Delegate drafting a vault page to the worker, following the vault schema and templates.
 
         Prose has no verifier, so you carry the whole review. Best for long pages built from
         facts you supply. For anything where correctness matters more than volume, consider
@@ -532,10 +533,10 @@ def create_server(
             except OSError:
                 pass
 
-        # agy will claim it wrote a file it did not write, so check the disk.
+        # The worker will claim it wrote a file it did not write, so check the disk.
         wrote_file = target_file.exists()
         if not wrote_file:
-            notes.append("agy did not create the file, whatever its summary says")
+            notes.append("The worker did not create the file, whatever its summary says")
         log_delegation(cfg.log_path, "delegate_vault_document", res, verified=wrote_file)
 
         return _format_response(
@@ -543,8 +544,8 @@ def create_server(
             res,
             [
                 f"Read {target_file} and check it against ~/.vault/schema.md and the template.",
-                "Verify every factual claim — prose has no verifier and agy invents plausible"
-                " details such as line counts.",
+                "Verify every factual claim — prose has no verifier and the worker invents"
+                " plausible details such as line counts.",
                 "Interrogate the prose: plain English, concrete, no sentence that does not earn"
                 " its place.",
                 "Confirm no real customer or tenant names appear.",
@@ -575,7 +576,7 @@ def create_server(
             ),
         ],
         working_directory: Annotated[
-            str, Field(description="Absolute path agy runs in. Must match the original call.")
+            str, Field(description="Absolute path the worker runs in. Must match the original call.")
         ] = "",
         target_file: Annotated[
             str, Field(description="File under revision, for the review reminder.")
@@ -584,8 +585,8 @@ def create_server(
             str,
             Field(
                 description=(
-                    "Command proving the correction worked. This server re-runs it after agy "
-                    "finishes. Pass the same one used for the original draft."
+                    "Command proving the correction worked. This server re-runs it after the "
+                    "worker finishes. Pass the same one used for the original draft."
                 )
             ),
         ] = "",
@@ -596,9 +597,9 @@ def create_server(
         model: Annotated[Optional[str], MODEL_FIELD] = None,
         effort: Annotated[Optional[Effort], EFFORT_FIELD] = None,
     ) -> str:
-        """Send corrections back to an earlier agy delegation instead of rewriting its output.
+        """Send corrections back to an earlier delegation instead of rewriting its output.
 
-        agy still holds the original context, so it re-reads almost nothing. Prefer this over
+        The worker still holds the original context, so it re-reads almost nothing. Prefer this over
         fixing a long draft yourself; then re-read only to verify.
         """
         work_dir = working_directory or str(cfg.dev_path)

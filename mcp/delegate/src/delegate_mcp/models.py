@@ -24,7 +24,7 @@ class ExecutionResult(BaseModel):
 
 
 class Verification(BaseModel):
-    """Result of the server running a verify command itself, not agy's claim about it."""
+    """Result of the server running a verify command itself, not the worker's claim about it."""
 
     command: str
     passed: bool

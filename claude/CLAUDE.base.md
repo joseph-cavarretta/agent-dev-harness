@@ -55,22 +55,22 @@ installed) and then adds its own machine-specific sections
 
 ## MCP Restrictions
 - Treat Notion as read-only — never use Notion write/delete tools
-- `agy` runs with permissions auto-approved and can write anywhere under `~/dev` and `~/.vault`. Scope every delegation to the narrowest `working_directory` that works, and never delegate anything touching secrets or IaC
+- The delegate worker runs with permissions auto-approved and can write anywhere under `~/dev` and `~/.vault`. Scope every delegation to the narrowest `working_directory` that works, and never delegate anything touching secrets or IaC
 
 ## Local tools (`ah-*`)
 - Prefer the `ah-*` scripts (listed at session start by the tools-index hook) over improvised commands. Pipe them together and read only the final summary, not raw output.
 - When you find yourself running the same multi-step read more than twice, propose it as a new script in `~/dev/agent-dev-harness/tools/`.
 
-## Delegating to a worker agent (`agy`)
-- Claude orchestrates and reviews; the worker (`agy`, Google Antigravity) does the bulk work through the `delegate` MCP server at `~/dev/agent-dev-harness/mcp/delegate`.
+## Delegating to a worker agent
+- Claude orchestrates and reviews; a worker agent CLI does the bulk work through the `delegate` MCP server at `~/dev/agent-dev-harness/mcp/delegate`.
 - **The gate is a verifier, not a line count.** If a command can prove the work is right, delegating wins at almost any size. If correctness can only be judged by reading, delegating usually loses — the review costs more than writing it.
-  - `delegate_code_draft` + `verify_command` — `agy` loops until the command passes, then the server re-runs it independently. Always pass one when it exists. For Python repos, default to `verify_command: "ah-check"` (ruff, format, mypy and pytest with the repo's own config; it fails if nothing applies); narrow with `--only` or add a targeted test command when the change needs one.
+  - `delegate_code_draft` + `verify_command` — the worker loops until the command passes, then the server re-runs it independently. Always pass one when it exists. For Python repos, default to `verify_command: "ah-check"` (ruff, format, mypy and pytest with the repo's own config; it fails if nothing applies); narrow with `--only` or add a targeted test command when the change needs one.
   - `delegate_task` + `output_schema` — for anything consumed programmatically (findings, extractions, sweeps). Schema-valid output beats parsing prose.
   - `delegate_task` for bulk reading: large logs, multi-repo sweeps. Best economics — reads a lot, returns a little.
 - **Prefer cheap model reads over cheap model writes.** Mistakes in reading are recoverable; the final artifact is what ships. For a page where correctness matters more than volume, use `delegate_task` with a schema to gather facts, then write it yourself.
 - **Don't delegate** anything smaller than the review it triggers: small diffs, anything under **Infrastructure**, or anything needing a real permission decision.
-- Pass **file paths, not file contents** — `agy` reads files itself.
+- Pass **file paths, not file contents** — the worker reads files itself.
 - Set `effort` to `low` for mechanical work; reserve `high` for tasks that need it. Batch related work into one `conversation_id` — a warm conversation is far cheaper than repeated cold calls.
-- **Never trust `agy`'s self-report.** It has claimed success on work that failed and reported errors on work that passed. Believe the verify command, or check the file on disk.
+- **Never trust the worker's self-report.** It has claimed success on work that failed and reported errors on work that passed. Believe the verify command, or check the file on disk.
 - To correct a draft, call `refine_delegation` with the returned `conversation_id` rather than rewriting it yourself. Then re-read only to verify.
 - Run `delegation_stats` occasionally. If the correction rate is high, delegating is costing more than it saves.

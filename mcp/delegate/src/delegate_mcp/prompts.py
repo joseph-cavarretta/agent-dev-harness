@@ -23,9 +23,9 @@ OBSIDIAN_LINKS = "Link related pages with Obsidian wiki links: [[wiki/folder/pag
 
 
 def verify_command_line(command: str, directory: str) -> str:
-    """The literal shell line agy must run, cd included.
+    """The literal shell line the worker must run, cd included.
 
-    agy's shell tool always starts in its own scratch directory, whatever working directory
+    The worker's shell tool may start in its own scratch directory, whatever working directory
     the process was launched from. Without an explicit cd it runs somewhere else entirely and
     then reports output it never obtained.
     """
@@ -33,7 +33,7 @@ def verify_command_line(command: str, directory: str) -> str:
 
 
 def verify_loop(command: str, directory: str, max_rounds: int) -> str:
-    """Instruction block telling agy to check its own work against a real command."""
+    """Instruction block telling the worker to check its own work against a real command."""
     return f"""Check your work before handing it back:
 1. Write the code.
 2. Run this exact shell command, including the cd — your shell does not start in the right
