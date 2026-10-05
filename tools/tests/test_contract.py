@@ -29,7 +29,8 @@ SCRIPTS = sorted(p for p in BIN.iterdir() if not p.name.startswith("."))
 
 def _summary(script: Path) -> str | None:
     """The summary exactly as the tools-index hook will read it."""
-    return tools_index.summary(script)
+    found: str | None = tools_index.summary(script)
+    return found
 
 
 @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)

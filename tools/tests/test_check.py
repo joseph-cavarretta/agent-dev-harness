@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -36,7 +37,8 @@ def _run(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _checks(repo: Path, *args: str) -> dict[str, dict[str, object]]:
+# Rows are ah-check --json output parsed as-is; each test reads the keys it asserts on.
+def _checks(repo: Path, *args: str) -> dict[str, dict[str, Any]]:
     out = _run(repo, *args, "--json").stdout
     return {c["name"]: c for c in map(json.loads, out.splitlines())}
 
