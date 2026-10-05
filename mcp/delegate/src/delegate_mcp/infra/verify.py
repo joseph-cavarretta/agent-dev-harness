@@ -1,10 +1,12 @@
 import subprocess
+
 from delegate_mcp.models import Verification
 
 MAX_OUTPUT_CHARS = 6000
 
 
 def _tail(text: str) -> str:
+    """The last MAX_OUTPUT_CHARS of text, marked when anything was cut."""
     if len(text) <= MAX_OUTPUT_CHARS:
         return text
     return "...(truncated)...\n" + text[-MAX_OUTPUT_CHARS:]
@@ -16,15 +18,21 @@ class ShellVerifier:
     The worker will claim success it does not have, so its word is never the evidence.
     """
 
-    def run(self, command: str, working_directory: str, timeout_seconds: int) -> Verification:
+    def run(
+        self, command: str, working_directory: str, timeout_seconds: int
+    ) -> Verification:
+        """Run command through the shell and report its exit status and output."""
         try:
-            res = subprocess.run(
+            # shell=True is the point: verify commands are full shell lines such as
+            # `cd repo && uv run pytest`, written by the calling agent.
+            res = subprocess.run(  # noqa: S602
                 command,
                 shell=True,
                 cwd=working_directory,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
+                check=False,
             )
         except subprocess.TimeoutExpired:
             return Verification(

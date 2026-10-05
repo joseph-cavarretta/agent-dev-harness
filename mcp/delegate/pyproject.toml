@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-delegate-mcp = "delegate_mcp.main:main"
+delegate-mcp = "delegate_mcp.entrypoints.main:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
@@ -21,6 +21,18 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "mypy>=1.10",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.16",
 ]
+
+[tool.ruff]
+extend = "../../python-styleguide/ruff-base.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["delegate_mcp"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
