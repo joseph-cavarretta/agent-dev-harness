@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse / AfterTool: append shell and file-read tool calls to a per-session audit log.
+"""PostToolUse / AfterTool: append shell and file-read tool calls to a session log.
 
 Log format (one entry per call):
     2026-04-21T09:42:15 exit=0  [cwd=/path]
@@ -7,26 +7,25 @@ Log format (one entry per call):
     2026-04-21T09:42:20  [cwd=/path]
       @ Grep 'pattern' in /some/path
 
-Claude (Bash, Read, Grep, Glob) entries → ~/.claude/audit/<session_id>.log
-Gemini (run_shell_command) entries → ~/.gemini/audit/<session_id>.log
-Non-blocking (always exit 0).
+Writes ~/.claude/audit/<session_id>.log (Gemini: ~/.gemini/audit/). Never blocks.
 """
+
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import datetime
+from pathlib import Path
 
-LOG_DIR_CLAUDE = os.path.expanduser("~/.claude/audit")
-LOG_DIR_GEMINI = os.path.expanduser("~/.gemini/audit")
+LOG_DIR_CLAUDE = Path.home() / ".claude" / "audit"
+LOG_DIR_GEMINI = Path.home() / ".gemini" / "audit"
 SHELL_TOOLS = ("Bash", "run_shell_command")
 # Claude's built-in read tools, logged so repeated reads (e.g. of the vault) can be
 # counted alongside shell commands.
 FILE_TOOLS = ("Read", "Grep", "Glob")
 
 
-def describe(tool_name: str, tool_input: dict) -> str:
+def describe(tool_name: str, tool_input: dict[str, object]) -> str:
     """The logged line: `$ command` for shells, `@ Tool target` for file reads."""
     if tool_name in SHELL_TOOLS:
         return f"$ {tool_input.get('command', '')}"
@@ -37,6 +36,7 @@ def describe(tool_name: str, tool_input: dict) -> str:
 
 
 def main() -> int:
+    """Append one entry for a logged tool call; always exits 0."""
     try:
         event = json.load(sys.stdin)
     except json.JSONDecodeError:
@@ -52,19 +52,20 @@ def main() -> int:
     line = describe(tool_name, event.get("tool_input") or {})
     # File tools can return non-dict responses; only shells report an exit code.
     response = event.get("tool_response")
-    status = ""
+    status: object = ""
     if isinstance(response, dict):
         status = response.get("exit_code", response.get("exitCode", ""))
 
+    # Local wall-clock time without an offset: ah-tools-stats parses this exact shape.
+    ts = datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S")
+    status_s = f" exit={status}" if status != "" else ""
     try:
-        os.makedirs(log_dir, exist_ok=True)
-        path = os.path.join(log_dir, f"{session_id}.log")
-        with open(path, "a") as f:
-            ts = datetime.now().isoformat(timespec="seconds")
-            status_s = f" exit={status}" if status != "" else ""
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (log_dir / f"{session_id}.log").open("a") as f:
             f.write(f"{ts}{status_s}  [cwd={cwd}]\n  {line}\n")
     except OSError:
-        pass
+        # Best-effort log: a full disk or bad permissions must never block the tool.
+        return 0
     return 0
 
 

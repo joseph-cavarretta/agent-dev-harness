@@ -1,14 +1,21 @@
 import json
 from pathlib import Path
-from delegate_mcp.delegation_log import log_delegation
+
+from delegate_mcp.infra.delegation_log import log_delegation
 from delegate_mcp.models import ExecutionResult, Usage
 
 
-def test_log_delegation_appends_a_row(tmp_path) -> None:
+def test_log_delegation_appends_a_row(tmp_path: Path) -> None:
     log = tmp_path / "nested" / "log.jsonl"
     res = ExecutionResult(
-        success=True, stdout="", stderr="", exit_code=0, command=["worker"],
-        target_file="/tmp/x.py", conversation_id="c1", duration_seconds=3.14,
+        success=True,
+        stdout="",
+        stderr="",
+        exit_code=0,
+        command=["worker"],
+        target_file="/srv/x.py",
+        conversation_id="c1",
+        duration_seconds=3.14,
         usage=Usage(input_tokens=10, output_tokens=2, cache_read_tokens=5),
     )
     log_delegation(log, "delegate_code_draft", res, verified=True, refine_of="c0")
