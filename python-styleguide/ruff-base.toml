@@ -10,7 +10,8 @@ line-length = 88
 indent-width = 4
 target-version = "py311"
 
-extend-exclude = [".local"]
+# Notebooks are exploratory scratch work, like .local.
+extend-exclude = [".local", "*.ipynb"]
 
 [format]
 quote-style = "double"
@@ -62,9 +63,10 @@ select = [
 ignore = ["E501"]  # code width is the formatter's; W505 covers prose
 
 [lint.per-file-ignores]
-"**/tests/**" = ["S101", "D1"]
-"**/test_*.py" = ["S101", "D1"]
-"**/conftest.py" = ["S101", "D1"]
+# PLR2004: literal expected values are what a test assertion is made of.
+"**/tests/**" = ["S101", "D1", "PLR2004"]
+"**/test_*.py" = ["S101", "D1", "PLR2004"]
+"**/conftest.py" = ["S101", "D1", "PLR2004"]
 
 [lint.pycodestyle]
 max-doc-length = 88

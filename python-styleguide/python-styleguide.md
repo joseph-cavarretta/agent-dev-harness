@@ -487,7 +487,7 @@ Choose the level deliberately: `debug` for tracing, `info` for lifecycle and out
 - **Prefer stubs over mocks:** inject lightweight stub classes rather than patching internals with `unittest.mock.patch`. Reserve mocks for external library calls that can't be injected. A test that patches five internals is testing the implementation, not the behavior.
 - **Test logic directly:** most tests target pure business logic. Reserve heavier tests for adapters (I/O behavior) and end-to-end wiring.
 - **Test behavior, not implementation.** Assert on what the function returns or the effect it has, not on which private helpers it called.
-- Tests are annotated and linted like everything else, and are exempt only from the docstring rule.
+- Tests are annotated and linted like everything else. They are exempt only from the docstring, `assert` and magic-value rules.
 
 ```python
 # conftest.py
@@ -576,9 +576,30 @@ extend = "../agent-dev-harness/python-styleguide/ruff-base.toml"
 
 [tool.ruff.lint.isort]
 known-first-party = ["shared", "content_search"]   # per repo
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]   # wherever pydantic is a dependency
 ```
 
-**Excluded paths** — `.local/**` via top-level `exclude` (no lint, no format); `scripts/**` via `[lint].exclude` (no lint, still formatted). The docstring checks skip both as well.
+That is the whole lint config. A repo adds no `select`, `ignore` or per-file ignores of its own; a rule that can't apply on one line gets `# noqa: <code>  # <reason>` on that line. Vendors without type stubs get a `[[tool.mypy.overrides]]` entry naming the module, never a global `ignore_missing_imports`. If a repo truly needs a per-file ignore, use `extend-per-file-ignores`: a plain `per-file-ignores` table replaces the baseline's instead of adding to it, and silently re-enables `assert` warnings in tests.
+
+The relative path resolves because every repo is checked out next to this one. CI does the same with a second checkout:
+
+```yaml
+defaults:
+  run:
+    working-directory: repo
+steps:
+  - uses: actions/checkout@v7
+    with: { path: repo }
+  - uses: actions/checkout@v7
+    with: { repository: joseph-cavarretta/agent-dev-harness, path: agent-dev-harness }
+```
+
+**Excluded paths** — `.local/**` and `*.ipynb` via top-level `exclude` (no lint, no format); `scripts/**` via `[lint].exclude` (no lint, still formatted). The docstring checks skip `scripts/` and `.local/` as well. Notebooks are exploratory, like `.local/`.
+
+**Tests** — `S101` (assert), `D1` (docstrings) and `PLR2004` (magic values) are off under `tests/`: literal expected values are what an assertion is made of.
 
 **Formatting** — `ruff format`: line length, quote style, trailing commas, blank lines, whitespace, indentation. Never argue with the formatter.
 
