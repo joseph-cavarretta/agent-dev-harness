@@ -14,6 +14,12 @@ these instructions simply no-op.
 - **Templates:** `~/.vault/_templates/` — MUST read and use the matching template when creating new vault notes
 - **Folders:** `wiki/` (technical reference: systems, repos, runbooks, decisions, patterns), `notes/` (working notes), `projects/` (multi-file initiatives), `plans/` (index notes pointing to full plans), `investigations/` (incident & debugging writeups), `archive/`. Optional personal folders (`job-search/`, `interviews/`) follow the Personal section of `schema.md`
 
+### Encryption
+- The vault repo is encrypted with git-crypt: every file except `.gitattributes` and `.gitignore` is ciphertext on GitHub; the key is in 1Password
+- On a fresh clone, files start with `\0GITCRYPT` until unlocked. Ask for the key and run `git-crypt unlock <keyfile>` before reading or writing pages, then delete the downloaded key
+- Once unlocked, commits encrypt automatically; no key is needed per commit or PR. Review PR diffs locally (`git diff main...<branch>`), since GitHub shows only binary
+- File names and commit messages are not encrypted: keep company and account names out of them
+
 ### Plans — two parts
 1. `~/.vault/plans/<slug>.md` — short vault index note: title, date, link to plan file, project, 2–3 sentence summary. Use `_templates/plan-index.md`.
 2. `~/.claude/plans/<slug>.md` — the full implementation plan: scope, approach, key files, risks.
