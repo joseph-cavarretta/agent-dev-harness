@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse / beforeShellExecution guard: lint PR descriptions with Vale.
+"""PreToolUse guard: lint PR descriptions with Vale.
 
 Intercepts `gh pr create`, `gh pr edit`, and `gh api` pull-request body updates,
 runs the extracted Markdown body through `vale-lint --stdin`, and blocks the
@@ -42,14 +42,13 @@ API_BODY_FILE_RE = re.compile(
 CD_PREFIX_RE = re.compile(r"\bcd\s+(?:\"([^\"]+)\"|'([^']+)'|(\S+))")
 
 
-def _extract_command(payload: dict[str, object]) -> tuple[str, bool]:
-    """Return the shell command and whether the caller is Claude Code."""
+def _extract_command(payload: dict[str, object]) -> str:
+    """Return the Bash command from a Claude Code PreToolUse payload."""
     tool_input = payload.get("tool_input")
-    if isinstance(tool_input, dict):
-        cmd = tool_input.get("command") or tool_input.get("CommandLine") or ""
-        return (cmd if isinstance(cmd, str) else ""), True
-    cmd = payload.get("command") or ""
-    return (cmd if isinstance(cmd, str) else ""), False
+    if not isinstance(tool_input, dict):
+        return ""
+    cmd = tool_input.get("command")
+    return cmd if isinstance(cmd, str) else ""
 
 
 def _is_pr_body_command(command: str) -> bool:
@@ -67,11 +66,6 @@ def _resolve_base_dirs(command: str, payload: dict[str, object]) -> list[Path]:
         raw_cd = cd_match.group(1) or cd_match.group(2) or cd_match.group(3)
         if raw_cd:
             dirs.append(Path(raw_cd).expanduser())
-    roots = payload.get("workspace_roots")
-    if isinstance(roots, list):
-        for root in roots:
-            if isinstance(root, str) and root:
-                dirs.append(Path(root))
     cwd = payload.get("cwd")
     if isinstance(cwd, str) and cwd:
         dirs.append(Path(cwd))
@@ -84,7 +78,9 @@ def _read_body_file(raw_path: str, base_dirs: list[Path]) -> str | None:
     if not raw_path or raw_path == "-":
         return None
     candidate = Path(raw_path).expanduser()
-    paths = [candidate] if candidate.is_absolute() else [d / candidate for d in base_dirs]
+    paths = (
+        [candidate] if candidate.is_absolute() else [d / candidate for d in base_dirs]
+    )
     for path in paths:
         if path.is_file():
             try:
@@ -146,21 +142,11 @@ def _find_vale_lint() -> str | None:
     return None
 
 
-def _allow(*, is_claude: bool) -> None:
-    """Allow the command cleanly for the active harness."""
-    if not is_claude:
-        print(json.dumps({"permission": "allow"}))
-    sys.exit(0)
-
-
-def _deny(reason: str, *, is_claude: bool) -> None:
-    """Block the command with Vale diagnostics for either Claude Code or Cursor."""
+def _deny(reason: str) -> None:
+    """Block the command and hand the Vale findings back to Claude."""
     print(
         json.dumps(
             {
-                "permission": "deny",
-                "user_message": reason,
-                "agent_message": reason,
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
@@ -169,7 +155,7 @@ def _deny(reason: str, *, is_claude: bool) -> None:
             }
         )
     )
-    sys.exit(0 if is_claude else 2)
+    sys.exit(0)
 
 
 def main() -> None:
@@ -179,17 +165,17 @@ def main() -> None:
     except (json.JSONDecodeError, OSError):
         sys.exit(0)
 
-    command, is_claude = _extract_command(payload)
+    command = _extract_command(payload)
     if not command or not _is_pr_body_command(command):
-        _allow(is_claude=is_claude)
+        sys.exit(0)
 
     body = _extract_body(command, payload)
     if not body or not body.strip():
-        _allow(is_claude=is_claude)
+        sys.exit(0)
 
     vale_lint_bin = _find_vale_lint()
     if not vale_lint_bin:
-        _allow(is_claude=is_claude)
+        sys.exit(0)
 
     result = subprocess.run(  # noqa: S603  # trusted local vale-lint binary
         [vale_lint_bin, "--stdin"],
@@ -207,9 +193,9 @@ def main() -> None:
             "and revise before running `gh`:\n\n"
             f"{output}"
         )
-        _deny(reason, is_claude=is_claude)
+        _deny(reason)
 
-    _allow(is_claude=is_claude)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

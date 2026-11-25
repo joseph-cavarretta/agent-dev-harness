@@ -9,12 +9,6 @@ from pathlib import Path
 import pytest
 
 HOOK = Path(__file__).resolve().parents[1] / "hooks" / "verify-prose-style.py"
-CURSOR_PY_HOOK = (
-    Path(__file__).resolve().parents[2] / "cursor" / "hooks" / "verify_python_lint.py"
-)
-CURSOR_MD_HOOK = (
-    Path(__file__).resolve().parents[2] / "cursor" / "hooks" / "verify_prose_lint.py"
-)
 
 pytestmark = pytest.mark.skipif(shutil.which("vale") is None, reason="vale not on PATH")
 
@@ -98,10 +92,7 @@ def test_lints_markdown_inside_git_worktree(tmp_path: Path) -> None:
     """Verify markdown files inside a .worktrees/<branch>/ directory are linted."""
     wt_doc = tmp_path / ".worktrees" / "feature-branch" / "docs" / "spec.md"
     wt_doc.parent.mkdir(parents=True)
-    wt_doc.write_text(
-        "## Overview\n\n"
-        "- **Bold title:** busy bullet text.\n"
-    )
+    wt_doc.write_text("## Overview\n\n- **Bold title:** busy bullet text.\n")
 
     raw = _hook(wt_doc)
     assert raw != ""
@@ -141,40 +132,3 @@ def test_skips_missing_files(tmp_path: Path) -> None:
     missing = tmp_path / "missing.md"
 
     assert _hook(missing) == ""
-
-
-def test_cursor_stop_hooks_do_not_clobber_tracking_log(tmp_path: Path) -> None:
-    """Verify verify_python_lint preserves .md entries for verify_prose_lint."""
-    track_dir = Path.home() / ".cursor/var/agent-edits"
-    track_dir.mkdir(parents=True, exist_ok=True)
-    gen_id = "test-gen-prose-preservation"
-    log_file = track_dir / f"{gen_id}.txt"
-
-    bad_md = tmp_path / "bad_turn.md"
-    bad_md.write_text("# Overview\n\nWe will hydrate the service.\n")
-    log_file.write_text(f"{bad_md}\n", encoding="utf-8")
-
-    try:
-        payload = json.dumps({"status": "completed", "generation_id": gen_id})
-        py_res = subprocess.run(  # noqa: S603
-            [sys.executable, str(CURSOR_PY_HOOK)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert json.loads(py_res.stdout) == {}
-        assert log_file.is_file()
-
-        md_res = subprocess.run(  # noqa: S603
-            [sys.executable, str(CURSOR_MD_HOOK)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        followup = json.loads(md_res.stdout).get("followup_message", "")
-        assert "Google.We" in followup
-        assert "House.WordList" in followup
-    finally:
-        log_file.unlink(missing_ok=True)

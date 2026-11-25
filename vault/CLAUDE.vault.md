@@ -33,7 +33,7 @@ these instructions simply no-op.
 4. Lint on demand using the checklist in `~/.vault/schema.md`
 
 ### Conventions
-- **Strictly local and private:** The vault lives ONLY on this machine and is NOT a shared team doc or runbook. NEVER mention, reference, or link to `~/.vault/`, vault note paths, or `~/.claude/plans/` in GitHub repos, commits, PR descriptions/comments, committed docs, Jira tickets/comments, Confluence, Notion, or Slack.
+- The vault is strictly local and private: it lives ONLY on this machine and is NOT a shared team doc or runbook. NEVER mention, reference, or link to `~/.vault/`, vault note paths, or `~/.claude/plans/` in GitHub repos, commits, PR descriptions/comments, committed docs, Jira tickets/comments, Confluence, Notion, or Slack.
 - Filenames: lowercase, hyphens (`my-service.md`)
 - Links: Obsidian `[[wiki/folder/page-name]]` syntax
 - Never include real customer or tenant names — use `<tenant>`, `<slug>`, `<env>`

@@ -127,7 +127,7 @@ def delegate_vault_document(ctx: AppContext, request: VaultDocumentRequest) -> s
         )
     )
 
-    # the worker will claim it wrote a file it did not write, so check the disk
+    # The worker will claim it wrote a file it did not write, so check the disk.
     wrote_file = target_file.exists()
     verification: Verification | None = None
     rounds = 0

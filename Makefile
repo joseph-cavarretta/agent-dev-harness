@@ -1,5 +1,4 @@
 CLAUDE_DIR := $(HOME)/.claude
-CURSOR_DIR := $(HOME)/.cursor
 VAULT_DIR := $(HOME)/.vault
 BIN_DIR := $(HOME)/.local/bin
 SETTINGS := $(CLAUDE_DIR)/settings.json
@@ -9,7 +8,7 @@ ifeq ($(OS),Linux)
 VALE_STYLES_DIR := $(HOME)/.local/share/vale/styles
 endif
 
-.PHONY: install install-vault vault-init install-tools install-prose install-cursor test-tools test-hooks test-prose new-project mcp uninstall
+.PHONY: install install-vault vault-init install-tools install-prose test-tools test-hooks test-prose new-project mcp uninstall
 
 # Symlink the base instructions and hooks, then merge the managed settings keys into
 # ~/.claude/settings.json. A merge rather than a symlink: Claude Code writes /model and theme
@@ -59,13 +58,6 @@ install-prose:
 	@if command -v vale >/dev/null 2>&1; then vale sync; fi
 	@echo "Prose styleguide and Vale installed."
 
-# Link Cursor rules and completion-gate hooks into ~/.cursor.
-install-cursor:
-	@mkdir -p "$(CURSOR_DIR)/hooks" "$(CURSOR_DIR)/rules"
-	@for hook in $(CURDIR)/cursor/hooks/*.py; do [ -e "$$hook" ] || continue; ln -sfn "$$hook" "$(CURSOR_DIR)/hooks/$$(basename $$hook)"; done
-	@for rule in $(CURDIR)/cursor/rules/*.mdc; do [ -e "$$rule" ] || continue; ln -sfn "$$rule" "$(CURSOR_DIR)/rules/$$(basename $$rule)"; done
-	@echo "Cursor hooks and rules linked into $(CURSOR_DIR)."
-
 test-tools:
 	@uv run --no-project --with pytest pytest -q "$(CURDIR)/tools/tests"
 
@@ -92,7 +84,6 @@ mcp:
 # Removes symlinks that point into this repo. Leaves settings.json alone.
 uninstall:
 	@for link in "$(CLAUDE_DIR)"/CLAUDE.base.md "$(CLAUDE_DIR)"/CLAUDE.vault.md "$(CLAUDE_DIR)"/hooks/*.py \
-		"$(CURSOR_DIR)"/hooks/*.py "$(CURSOR_DIR)"/rules/*.mdc \
 		"$(BIN_DIR)"/ah-* "$(BIN_DIR)"/vale-lint "$(HOME)/.vale.ini" "$(VALE_STYLES_DIR)/House"; do \
 		if [ -L "$$link" ] && readlink "$$link" | grep -q "^$(CURDIR)/"; then rm "$$link" && echo "removed $$link"; fi; \
 	done

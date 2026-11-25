@@ -173,7 +173,12 @@
             "command": "python3 ~/.claude/hooks/git-commit-guard.py",
             "if": "Bash(git commit *)",
             "timeout": 10
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/pr-prose-guard.py",
@@ -194,13 +199,18 @@
         ]
       },
       {
-        "matcher": "Edit|Write|StrReplace|MultiEdit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/lint-autofix.py",
             "timeout": 30
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/verify-prose-style.py",

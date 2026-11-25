@@ -45,7 +45,6 @@ exceptions:
   - CRUD
   - CSS
   - CSV
-  - Cursor
   - Dagster
   - Darwin
   - Datadog

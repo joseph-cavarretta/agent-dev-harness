@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# posttooluse hook: checks markdown documentation style with vale-lint.
-# runs after any write or edit tool call on markdown files.
-# injects additionalcontext if style issues or errors are detected.
+# PostToolUse hook: lint an edited Markdown file with vale-lint and hand any findings
+# back to Claude as additionalContext.
 from __future__ import annotations
 
 import json
@@ -11,14 +10,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-# directories and files skipped by default (templates, logs, agent prompts, envs)
+# Directories and files skipped by default (templates, logs, agent prompts, envs).
 SKIP_PATTERN = re.compile(
     r"(^|/)(?:"
-    r"(?:\.obsidian|_templates|\.local|\.claude|\.cursor|\.worktrees|worktrees|\.venv|venv|node_modules|raw|archive|\.github)/"
+    r"(?:\.obsidian|_templates|\.local|\.claude|\.worktrees|worktrees|\.venv|venv|node_modules|raw|archive|\.github)/"
     r"|(?:INDEX|log|CHANGELOG|CLAUDE(?:\.[A-Za-z0-9_-]+)?|AGENTS|SKILL)\.md$"
     r")"
 )
-WORKTREE_ROOT_PATTERN = re.compile(r"^.*?/(?:\.(?:cursor|claude)/)?\.?worktrees/[^/]+/")
+WORKTREE_ROOT_PATTERN = re.compile(r"^.*?/(?:\.claude/)?\.?worktrees/[^/]+/")
 
 
 def _is_skipped_path(path_str: str) -> bool:
@@ -28,22 +27,12 @@ def _is_skipped_path(path_str: str) -> bool:
 
 
 def _extract_file_path(data: dict[str, object]) -> str | None:
-    """Extract edited file path from hook payload."""
-    raw = data.get("file_path") or data.get("path")
-    if isinstance(raw, str) and raw:
-        return raw
-
+    """Return the edited file path from a Claude Code Edit or Write payload."""
     tool_input = data.get("tool_input")
-    if isinstance(tool_input, dict):
-        raw_tool = (
-            tool_input.get("path")
-            or tool_input.get("file_path")
-            or tool_input.get("TargetFile")
-        )
-        if isinstance(raw_tool, str) and raw_tool:
-            return raw_tool
-
-    return None
+    if not isinstance(tool_input, dict):
+        return None
+    raw = tool_input.get("file_path")
+    return raw if isinstance(raw, str) and raw else None
 
 
 def main() -> None:
@@ -65,7 +54,6 @@ def main() -> None:
     if not vale_lint_bin:
         sys.exit(0)
 
-    # run prose linter on the modified markdown file
     result = subprocess.run(  # noqa: S603  # trusted local linter binary
         [vale_lint_bin, str(file_path)],
         capture_output=True,
@@ -82,12 +70,14 @@ def main() -> None:
             "(second person or imperative, sentence-case headings, no editorial 'we')."
         )
         print(
-            json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
-                    "additionalContext": warning_msg,
-                },
-            })
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": warning_msg,
+                    },
+                }
+            )
         )
 
     sys.exit(0)

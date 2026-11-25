@@ -14,14 +14,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-# directories and files skipped by default (templates, logs, agent prompts, envs)
+# Directories and files skipped by default (templates, logs, agent prompts, envs).
 SKIP_PATTERN = re.compile(
     r"(^|/)(?:"
-    r"(?:\.obsidian|_templates|\.local|\.claude|\.cursor|\.worktrees|worktrees|\.venv|venv|node_modules|raw|archive|\.github)/"
+    r"(?:\.obsidian|_templates|\.local|\.claude|\.worktrees|worktrees|\.venv|venv|node_modules|raw|archive|\.github)/"
     r"|(?:INDEX|log|CHANGELOG|CLAUDE(?:\.[A-Za-z0-9_-]+)?|AGENTS|SKILL)\.md$"
     r")"
 )
-WORKTREE_ROOT_PATTERN = re.compile(r"^.*?/(?:\.(?:cursor|claude)/)?\.?worktrees/[^/]+/")
+WORKTREE_ROOT_PATTERN = re.compile(r"^.*?/(?:\.claude/)?\.?worktrees/[^/]+/")
 DEFAULT_CONFIG = Path.home() / "dev/agent-dev-harness/prose-styleguide/.vale.ini"
 
 
@@ -167,7 +167,7 @@ def _run_vale(
     if min_alert_level:
         cmd.append(f"--minAlertLevel={min_alert_level}")
 
-    # provide fallback config if neither local ini nor user ~/.vale.ini exists
+    # Fall back to the repo config when neither a local nor a ~/.vale.ini exists.
     user_ini = Path.home() / ".vale.ini"
     needs_fallback = not user_ini.is_file()
     if needs_fallback and DEFAULT_CONFIG.is_file():
@@ -228,7 +228,7 @@ def main() -> int:
     vale_bin = shutil.which("vale")
     if not vale_bin:
         sys.stderr.write(
-            "error: vale binary not found. install with 'brew install vale'.\n"
+            "error: vale not found on PATH. See https://vale.sh/docs/install\n"
         )
         return 1
 
@@ -258,7 +258,6 @@ def main() -> int:
     if output:
         print(output)
 
-    # evaluate exit status
     if args.errors_only:
         return 1 if returncode != 0 else 0
 

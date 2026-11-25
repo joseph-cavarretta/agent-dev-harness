@@ -4,12 +4,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mcp.server.mcpserver import MCPServer
+from mcp.types import CallToolResult, Tool
+
 from delegate_mcp.app.context import AppContext
 from delegate_mcp.config import Settings
 from delegate_mcp.entrypoints.server import create_server
 from delegate_mcp.models import ExecutionResult, Usage, Verification, WorkerRun
-from mcp.server.mcpserver import MCPServer
-from mcp.types import CallToolResult, Tool
 
 TOOL_NAMES = (
     "delegate_task",
@@ -602,4 +603,3 @@ def test_vault_document_runs_vale_lint_and_retries_when_file_exists(
     assert f"vale-lint {target}" in (verifier.last_command or "")
     assert "Verify rounds: 2" in result
     assert "PASSED" in result
-

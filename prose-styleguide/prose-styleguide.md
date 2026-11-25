@@ -17,7 +17,7 @@ strict division:
   anchor text (`House.Links`), filler phrases (`House.Filler`), `zero` as a quantifier
   (`House.ZeroQuantifier`, `House.ZeroQuantifierAdj`), and plain-English word
   substitutions (`House.WordList`).
-- Agent prompts (`technical-writing.mdc` / `CLAUDE.md`) provide guidance on audience,
+- Agent prompts (`CLAUDE.base.md`) provide guidance on audience,
   clarity, tone, active voice, Oxford commas, positive framing, and list structure.
 
 Anything a mechanical linter can check belongs in configuration, not in agent prompt tokens.
@@ -29,7 +29,7 @@ Anything a mechanical linter can check belongs in configuration, not in agent pr
 Prose linting targets Markdown documents (`*.md`, `*.mdx`) only. It deliberately does
 not run against code or docstrings:
 
-1. Python comments follow the lowercase comment rule (`use all lowercase for python code comments`). Running prose linters on code comments produces constant false alarms on intentional lowercase sentences and trailing punctuation.
+1. Code comments are short, terse notes rather than prose. Running a prose linter on them produces constant false alarms.
 2. Python docstrings are checked by Ruff and `docstring_length.py`, which caps lines, prevents restating signatures, and forbids `Args:` / `Returns:` blocks.
 3. Code files contain variable names, SQL fragments, and types that trigger false positives under English prose dictionaries.
 4. Generated indices, logs, and agent prompts (`INDEX.md`, `log.md`, `CHANGELOG.md`, `CLAUDE*.md`, `AGENTS.md`, `SKILL.md`, `raw/`, `archive/`, `_templates/`, and `.github/`) are skipped by default.
