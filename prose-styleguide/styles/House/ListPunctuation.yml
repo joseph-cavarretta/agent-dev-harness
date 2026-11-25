@@ -1,0 +1,7 @@
+extends: existence
+message: "End list items with a period or no punctuation instead of '%s'."
+level: warning
+scope: raw
+nonword: true
+tokens:
+  - '(?<=\n)[ \t]*(?:[-*+]|\d+\.)[ \t]+[^\n]*?;(?:[ \t]+(?:and|or))?[ \t]*\n'

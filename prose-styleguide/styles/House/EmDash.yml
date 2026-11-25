@@ -1,0 +1,6 @@
+extends: existence
+message: "Em dash — consider rephrasing (comma, colon, parentheses, or a new sentence)."
+level: suggestion
+nonword: true
+tokens:
+  - '—'

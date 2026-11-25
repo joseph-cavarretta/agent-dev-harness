@@ -2,8 +2,13 @@ CLAUDE_DIR := $(HOME)/.claude
 VAULT_DIR := $(HOME)/.vault
 BIN_DIR := $(HOME)/.local/bin
 SETTINGS := $(CLAUDE_DIR)/settings.json
+OS := $(shell uname -s)
+VALE_STYLES_DIR := $(HOME)/Library/Application Support/vale/styles
+ifeq ($(OS),Linux)
+VALE_STYLES_DIR := $(HOME)/.local/share/vale/styles
+endif
 
-.PHONY: install install-vault vault-init install-tools test-tools test-hooks new-project mcp uninstall
+.PHONY: install install-vault vault-init install-tools install-prose test-tools test-hooks test-prose new-project mcp uninstall
 
 # Symlink the base instructions and hooks, then merge the managed settings keys into
 # ~/.claude/settings.json. A merge rather than a symlink: Claude Code writes /model and theme
@@ -43,11 +48,24 @@ install-tools:
 	@for script in $(CURDIR)/tools/bin/ah-*; do [ -e "$$script" ] || continue; ln -sfn "$$script" "$(BIN_DIR)/$$(basename $$script)"; done
 	@echo "Tools installed. Make sure $(BIN_DIR) is on PATH."
 
+# Link prose styleguide, Vale configuration, and House style rules.
+install-prose:
+	@mkdir -p "$(BIN_DIR)"
+	@ln -sfn "$(CURDIR)/prose-styleguide/vale-lint" "$(BIN_DIR)/vale-lint"
+	@ln -sfn "$(CURDIR)/prose-styleguide/.vale.ini" "$(HOME)/.vale.ini"
+	@mkdir -p "$(VALE_STYLES_DIR)"
+	@ln -sfn "$(CURDIR)/prose-styleguide/styles/House" "$(VALE_STYLES_DIR)/House"
+	@if command -v vale >/dev/null 2>&1; then vale sync; fi
+	@echo "Prose styleguide and Vale installed."
+
 test-tools:
 	@uv run --no-project --with pytest pytest -q "$(CURDIR)/tools/tests"
 
 test-hooks:
 	@uv run --no-project --with pytest pytest -q "$(CURDIR)/claude/tests"
+
+test-prose:
+	@$(CURDIR)/prose-styleguide/vale-lint $(CURDIR)/prose-styleguide/prose-styleguide.md
 
 # New Python project from templates/python-project, to the styleguide's layout. Pass any
 # copier answer with DATA, e.g. DATA='--data description="Order sync"'.
@@ -66,7 +84,7 @@ mcp:
 # Removes symlinks that point into this repo. Leaves settings.json alone.
 uninstall:
 	@for link in "$(CLAUDE_DIR)"/CLAUDE.base.md "$(CLAUDE_DIR)"/CLAUDE.vault.md "$(CLAUDE_DIR)"/hooks/*.py \
-		"$(BIN_DIR)"/ah-*; do \
+		"$(BIN_DIR)"/ah-* "$(BIN_DIR)"/vale-lint "$(HOME)/.vale.ini" "$(VALE_STYLES_DIR)/House"; do \
 		if [ -L "$$link" ] && readlink "$$link" | grep -q "^$(CURDIR)/"; then rm "$$link" && echo "removed $$link"; fi; \
 	done
 

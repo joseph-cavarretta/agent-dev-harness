@@ -1,0 +1,9 @@
+extends: existence
+message: "Cut filler phrase '%s'; state the point directly."
+level: warning
+ignorecase: true
+tokens:
+  - 'note that'
+  - 'it is worth noting(?: that)?'
+  - 'it is important to (?:remember|note)(?: that)?'
+  - 'it should be noted(?: that)?'

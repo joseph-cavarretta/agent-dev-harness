@@ -575,3 +575,31 @@ def test_delegation_stats_counts_logs_written_before_the_rename(tmp_path: Path) 
     result = _call(server, "delegation_stats")
     assert "Worker reported success: 1/1" in result
     assert "disagreed with the check 1 time(s)" in result
+
+
+def test_vault_document_runs_vale_lint_and_retries_when_file_exists(
+    tmp_path: Path,
+) -> None:
+    """When the worker writes the vault file, the server verifies it with vale-lint."""
+    settings = _settings(tmp_path)
+    target = settings.vault_path / "wiki" / "systems" / "demo.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Demo\n\nThe worker polls Redis.\n", encoding="utf-8")
+
+    verifier = DummyVerifier(sequence=[False, True])
+    runner = DummyRunner()
+    server = _create(settings, runner, verifier)
+
+    result = _call(
+        server,
+        "delegate_vault_document",
+        relative_path="wiki/systems/demo.md",
+        topic="Demo system",
+        source_context="Redis polling details",
+    )
+
+    assert verifier.calls == 2
+    assert runner.calls == 2
+    assert f"vale-lint {target}" in (verifier.last_command or "")
+    assert "Verify rounds: 2" in result
+    assert "PASSED" in result
