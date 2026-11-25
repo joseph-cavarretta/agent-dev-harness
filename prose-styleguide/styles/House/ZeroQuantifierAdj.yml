@@ -1,0 +1,15 @@
+extends: sequence
+message: "Avoid using '%s' to quantify; prefer 'no', 'none', or 'without any'."
+level: warning
+ignorecase: true
+exceptions:
+  - '(?i)\b(?:divide|division) by zero\b'
+  - '(?i)\b(?:below|above|ground|absolute) zero\b'
+  - '(?i)\b(?:exit|status|return|error) code zero\b'
+  - '(?i)\b(?:set|sets|setting|defaults?|initialized?|reset|resets|equal|equals|equivalent) to zero\b'
+  - '(?i)\b(?:value|score|count|length|size|index|port|offset) of zero\b'
+  - '(?i)\bzero (?:times|plus|minus|degrees?|percent|points?|kelvin|celsius|fahrenheit)\b'
+tokens:
+  - pattern: zero
+  - tag: JJ$
+  - tag: NN

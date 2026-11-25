@@ -27,8 +27,16 @@ installed) and then adds its own machine-specific sections
 @~/dev/agent-dev-harness/python-styleguide/python-styleguide.md
 
 ## Writing style
-- Prefer plain English in prose and docs. Replace jargon when a plainer word exists: "hydrate" → "fill in / look up", "wire format" → "response shape", "by construction" → "structurally", "fail-open" → "slip through silently", "canonical" → "stable", "primitive" → "feature / fallback", "well-formedness" → "consistency", "obligations" → "what X must do", "BLUF" → drop.
+- Follow Google Technical Writing principles: second person ("you") or direct imperative commands ("Run `make test`"). NEVER use editorial "we" or "let's" (first-person singular "I"/"my" is fine in personal notes and READMEs).
+- Active voice over passive voice: state who or what performs the action ("The worker polls Redis", not "Redis is polled by the worker").
+- Present tense: describe how the system behaves right now ("The endpoint returns 404", not "The endpoint will return 404"). Future tense ("will") is fine in forward-looking plans and proposals.
+- Headings: use sentence-case capitalization (`## System topology`, not `## System Topology`), preserving proper nouns and acronyms (`ArgoCD`, `BigQuery`, `LLM`, `SQL`). Use `Summary` or `TLDR` instead of `Executive Summary` or `BLUF`.
+- Links and punctuation: use descriptive link anchor text (never `[here](...)` or `[click here](...)`), use Oxford commas in 3+ item lists, and avoid overusing AI-style em-dashes (`—`).
+- Prefer plain English in prose and docs. Replace jargon and filler when a plainer word exists: "hydrate" → "fill in / look up", "wire format" → "response shape", "by construction" → "structurally", "fail-open" → "slip through silently", "canonical" → "stable", "primitive" → "feature / fallback", "well-formedness" → "consistency", "obligations" → "what X must do", "ensure" → "verify / make sure", "kill" → "stop / terminate", "utilize" / "leverage" → "use", "in order to" → "to", "Executive Summary" / "BLUF" → "Summary" / "TLDR". Cut throat-clearing phrases ("Note that", "It is worth noting", "It is important to remember").
 - Keep precise technical terms that carry specific meaning (BM25, kNN, denylist, chunk_id, NLI, OOXML, etc.).
+- Write for a reader who doesn't already know the subject. Say what a thing is and what it does in concrete terms rather than naming it and moving on. Replace abstractions with the actual consequence — "one edit instead of one per service", not "a configuration change".
+- Interrogate every sentence: does it add clarity or muddy the message? Cut the ones that don't earn their place. Being explicit is worth the extra words.
+- Treat vague phrasing as a signal, not a style problem — it usually means the thought isn't finished. If a sentence resists being made concrete, the underlying claim probably needs work.
 
 ## Testing
 - Framework: pytest

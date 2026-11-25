@@ -1,0 +1,39 @@
+extends: substitution
+message: "Prefer plain language: use '%s' instead of '%s'."
+link: 'https://developers.google.com/style/word-list'
+level: warning
+ignorecase: true
+action:
+  name: replace
+swap:
+  hydrate: fill in|look up
+  hydrates: fills in|looks up
+  hydrated: filled in|looked up
+  hydrating: filling in|looking up
+  wire format: response shape
+  wire formats: response shapes
+  by construction: structurally
+  fail-open: slip through silently
+  fails-open: slips through silently
+  well-formedness: consistency
+  canonical: stable
+  primitive: feature|fallback
+  primitives: features|fallbacks
+  obligations: what it must do
+  ensure: make sure|verify
+  ensures: makes sure|verifies
+  ensuring: making sure|verifying
+  kill: stop|terminate
+  killed: stopped|terminated
+  killing: stopping|terminating
+  in order to: to
+  utilize: use
+  utilizes: uses
+  utilized: used
+  utilizing: using
+  leverage: use
+  leverages: uses
+  leveraged: used
+  leveraging: using
+  executive summary: Summary|TLDR
+  bluf: Summary|TLDR

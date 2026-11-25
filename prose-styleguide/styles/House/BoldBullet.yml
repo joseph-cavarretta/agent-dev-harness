@@ -1,0 +1,7 @@
+extends: existence
+message: "Avoid bold lead-in labels in list items ('%s'); use a subheading, table, or direct bullet instead."
+level: warning
+scope: raw
+nonword: true
+tokens:
+  - '(?<=\n)[ \t]*(?:[-*+](?:[ \t]+\[[ xX]\])?|\d+\.)[ \t]+\*\*[^\n*]+?(?:[.:]\*\*|\*\*[.:]|\*\*[ \t]+(?:—|--|-))'

@@ -1,0 +1,9 @@
+extends: existence
+message: "Use descriptive link anchor text instead of '%s'."
+link: "https://developers.google.com/style/link-text"
+level: warning
+ignorecase: true
+scope: raw
+nonword: true
+tokens:
+  - '(?<!`)\[(?:click\s+here|here|this\s+link|link|this\s+page|read\s+more|more\s+info)\]\([^)]+\)'
