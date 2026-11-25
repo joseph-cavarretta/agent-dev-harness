@@ -8,8 +8,10 @@ The standards, guardrails, and tools I use to for AI coding agents. Installs int
 |---|---|
 | `claude/CLAUDE.base.md` | Shared instructions: code, testing, git, writing style, and when to delegate |
 | `claude/settings.json` | Permission allow/deny baseline and hook wiring |
-| `claude/hooks/` | `secret-scanner` (blocks writes containing keys or tokens), `git-commit-guard` (rejects commit messages off the `type(scope): description` format), `audit-log` (logs every shell command), `precompact-snapshot` (keeps in-progress work through context compaction) |
+| `claude/hooks/` | `secret-scanner` (blocks writes containing keys or tokens), `git-commit-guard` (rejects commit messages off the `type(scope): description` format), `audit-log` (logs every shell command), `precompact-snapshot` (keeps in-progress work through context compaction), `lint-autofix` (runs ruff on edited Python files), `verify-prose-style` (runs `vale-lint` on edited Markdown files) |
+| `cursor/` | Cursor rules (`python-standards.mdc`, `technical-writing.mdc`) and completion-gate hooks (`track_agent_edits.py`, `verify_python_lint.py`, `verify_prose_lint.py`) |
 | `python-styleguide/` | The Python style guide, `ruff-base.toml` (strict lint and format baseline repos extend), and `docstring_length.py` (flags sprawling docstrings) |
+| `prose-styleguide/` | The technical writing style guide, `.vale.ini`, `House` Vale rules, and the `vale-lint` runner |
 | `mcp/delegate/` | MCP server that hands bulk reading and code drafting to a worker agent CLI and verifies the result. See its [README](mcp/delegate/README.md) |
 | `tools/` | Read-only `ah-*` scripts the agent runs instead of improvising commands, listed in every session by the `tools-index` SessionStart hook. See its [README](tools/README.md) |
 | `vault/` | Optional module for a Markdown knowledge base: instructions, two hooks, and an empty scaffold |
@@ -39,6 +41,8 @@ make mcp            # uv sync the delegation server and print its ~/.claude.json
 make vault-init     # create ~/.vault from the scaffold (never overwrites)
 make install-vault  # vault instructions, hooks, and settings; skipped without ~/.vault
 make install-tools  # link the ah-* scripts into ~/.local/bin
+make install-prose  # link vale-lint, ~/.vale.ini, and House Vale styles
+make install-cursor # link Cursor rules and completion-gate hooks into ~/.cursor
 make uninstall      # remove symlinks into this repo (settings.json is left alone)
 ```
 

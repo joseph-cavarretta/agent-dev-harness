@@ -77,7 +77,11 @@
       "Read(~/dev/**)",
       "Grep(~/dev/**)",
       "mcp__delegate__*",
-      "Bash(ah-*)"
+      "Bash(ah-*)",
+      "Bash(vale *)",
+      "Bash(vale)",
+      "Bash(vale-lint *)",
+      "Bash(vale-lint)"
     ],
     "deny": [
       "Bash(pip install *)",
@@ -169,6 +173,12 @@
             "command": "python3 ~/.claude/hooks/git-commit-guard.py",
             "if": "Bash(git commit *)",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/pr-prose-guard.py",
+            "if": "Bash(gh *)",
+            "timeout": 15
           }
         ]
       }
@@ -184,12 +194,17 @@
         ]
       },
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|StrReplace|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/lint-autofix.py",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/verify-prose-style.py",
+            "timeout": 15
           }
         ]
       }
