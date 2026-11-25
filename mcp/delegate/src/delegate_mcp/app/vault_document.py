@@ -6,13 +6,19 @@ from delegate_mcp.core import prompts
 from delegate_mcp.core.formatting import format_response
 from delegate_mcp.core.vault import template_stem
 from delegate_mcp.infra.delegation_log import log_delegation
-from delegate_mcp.models import ResponseReport, VaultDocumentRequest, WorkerRun
+from delegate_mcp.models import (
+    ExecutionResult,
+    ResponseReport,
+    VaultDocumentRequest,
+    Verification,
+    WorkerRun,
+)
 
 logger = logging.getLogger(__name__)
 
 _REVIEW = [
-    "Verify every factual claim — prose has no verifier and the worker invents"
-    " plausible details such as line counts.",
+    "Verify every factual claim — vale-lint checks prose style, not factual accuracy,"
+    " and the worker invents plausible details such as line counts.",
     "Interrogate the prose: plain English, concrete, no sentence that does not earn"
     " its place.",
     "Confirm no real customer or tenant names appear.",
@@ -43,8 +49,50 @@ def _remove_if_empty(directory: Path) -> None:
         logger.warning("could not clean up %s", directory, exc_info=True)
 
 
+def _verify_prose_until_passing(
+    ctx: AppContext,
+    request: VaultDocumentRequest,
+    target_file: Path,
+    res: ExecutionResult,
+) -> tuple[ExecutionResult, Verification, int]:
+    """Run vale-lint on the written vault file, retrying on style violations."""
+    vault_dir = str(ctx.settings.vault_path)
+    check_cmd = f"vale-lint {target_file}"
+    full_cmd = prompts.verify_command_line(check_cmd, vault_dir)
+    verification = ctx.verifier.run(
+        command=full_cmd,
+        working_directory=vault_dir,
+        timeout_seconds=ctx.settings.verify_timeout_seconds,
+    )
+    rounds = 1
+    while (
+        not verification.passed
+        and rounds < ctx.settings.max_verify_rounds
+        and res.conversation_id
+    ):
+        retry = prompts.verify_retry(check_cmd, vault_dir, rounds, verification.output)
+        res = ctx.runner.run(
+            WorkerRun(
+                prompt=retry,
+                working_directory=vault_dir,
+                timeout_seconds=ctx.settings.default_timeout_seconds,
+                target_file=str(target_file),
+                conversation_id=res.conversation_id,
+                model=request.model,
+                effort=request.effort,
+            )
+        )
+        verification = ctx.verifier.run(
+            command=full_cmd,
+            working_directory=vault_dir,
+            timeout_seconds=ctx.settings.verify_timeout_seconds,
+        )
+        rounds += 1
+    return res, verification, rounds
+
+
 def delegate_vault_document(ctx: AppContext, request: VaultDocumentRequest) -> str:
-    """Have the worker write one vault page, then check on disk that it exists."""
+    """Have the worker write one vault page, then verify on disk and with vale-lint."""
     clean_rel_path = request.relative_path.lstrip("/")
     target_file = ctx.settings.vault_path / clean_rel_path
     created_dir: Path | None = None
@@ -79,14 +127,30 @@ def delegate_vault_document(ctx: AppContext, request: VaultDocumentRequest) -> s
         )
     )
 
-    # The worker will claim it wrote a file it did not write, so check the disk.
+    # the worker will claim it wrote a file it did not write, so check the disk
     wrote_file = target_file.exists()
+    verification: Verification | None = None
+    rounds = 0
     if not wrote_file:
         if created_dir is not None:
             _remove_if_empty(created_dir)
         notes.append("The worker did not create the file, whatever its summary says")
+    else:
+        res, verification, rounds = _verify_prose_until_passing(
+            ctx, request, target_file, res
+        )
+        notes.append(
+            f"Verify rounds: {rounds}"
+            + ("" if verification.passed else f" (gave up after {rounds})")
+        )
+
+    verified = wrote_file and (verification.passed if verification else False)
     log_delegation(
-        ctx.settings.log_path, "delegate_vault_document", res, verified=wrote_file
+        ctx.settings.log_path,
+        "delegate_vault_document",
+        res,
+        verified=verified,
+        verify_rounds=rounds or None,
     )
     return format_response(
         ResponseReport(
@@ -99,5 +163,6 @@ def delegate_vault_document(ctx: AppContext, request: VaultDocumentRequest) -> s
             ],
             target_file=str(target_file),
             notes=notes,
+            verification=verification,
         )
     )

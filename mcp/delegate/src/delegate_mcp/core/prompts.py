@@ -9,8 +9,18 @@ PYTHON_STANDARDS = """Code standards:
 - Comment only where the logic is not self-evident. Do not add docstrings to code you did not change."""
 
 WRITING_STYLE = """Writing style:
+- Follow Google Technical Writing principles: second person ("you") or imperative commands.
+  Never use editorial "we", "our", or "let's".
+- Active voice over passive voice. Present tense for current system behavior.
+- Sentence-case headings (`## System topology`, not `## System Topology`), preserving proper
+  nouns and acronyms (`ArgoCD`, `BigQuery`, `LLM`, `SQL`). Use `Summary` or `TLDR` instead of
+  `Executive Summary` or `BLUF`.
+- Descriptive link anchor text (never `[here](...)` or `[click here](...)`). Avoid overusing
+  em-dashes (`—`).
 - Plain English. Prefer the plainer word: "fill in" over "hydrate", "response shape" over
-  "wire format", "slip through silently" over "fail-open".
+  "wire format", "slip through silently" over "fail-open", "verify" over "ensure", "stop"
+  over "kill", "use" over "utilize" or "leverage", "to" over "in order to". Cut filler phrases
+  ("note that", "it is worth noting").
 - Keep precise technical terms that carry specific meaning (BM25, kNN, chunk_id, OOXML).
 - Write for a reader who does not already know the subject. Say what a thing is and what it
   does in concrete terms.
